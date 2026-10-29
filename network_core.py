@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import html
+import re
 import os
 import uuid
 from datetime import date, datetime, timedelta
@@ -16,7 +17,7 @@ from pathlib import Path
 COLUMNS = [
     "id", "cree_le", "prenom", "nom", "categorie", "institution", "poste", "rencontre_ou", "date_rencontre",
     "anecdote", "raconte", "hobbies", "points_communs", "utile_pour", "chaleur", "tache", "echeance",
-    "dernier_contact", "telephone", "linkedin", "importe", "relation",
+    "dernier_contact", "telephone", "linkedin", "importe", "relation", "conseil",
 ]
 LABELS = {
     "prenom": "Prénom", "nom": "Nom", "categorie": "Catégorie", "institution": "Institution / école",
@@ -25,6 +26,7 @@ LABELS = {
     "points_communs": "Points communs", "utile_pour": "Utile pour…", "chaleur": "Chaleur du contact",
     "tache": "Tâche à faire", "echeance": "Échéance", "dernier_contact": "Dernier contact",
     "telephone": "Numéro", "linkedin": "Lien LinkedIn", "relation": "Relation",
+    "conseil": "Conseil qu'il m'a donné",
 }
 
 # Catégories : (nom, icône Phosphor). Le premier groupe = pro, le second = études et perso.
@@ -204,18 +206,40 @@ def norm(s: str) -> str:
     return "".join(ch for ch in s if not unicodedata.combining(ch))
 
 
-SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "raconte",
+SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "raconte",
                  "hobbies", "points_communs", "utile_pour", "tache"]
 
 
-def search(contacts, q="", cats=None, chaleurs=None, relations=None):
+def inst_tokens(s) -> list:
+    """« GSEM / UBS » -> ['GSEM', 'UBS'] : une institution par morceau (séparateurs / , ; + & ·)."""
+    out = []
+    for part in re.split(r"[/,;+&·]|\bet\b", str(s or "")):
+        part = part.strip()
+        if part:
+            out.append(part)
+    return out
+
+
+def institutions(contacts) -> list:
+    """Liste (nom affiché, nombre de contacts), la plus fournie d'abord. Les variantes de casse sont regroupées."""
+    count, label = {}, {}
+    for c in contacts:
+        for t in {norm(x).strip(): x for x in inst_tokens(c.get("institution"))}.items():
+            count[t[0]] = count.get(t[0], 0) + 1
+            label.setdefault(t[0], t[1])
+    return sorted(((label[k], n) for k, n in count.items()), key=lambda x: (-x[1], norm(x[0])))
+
+
+def search(contacts, q="", cats=None, insts=None, relations=None):
     words = norm(q).split()
     out = []
     for c in contacts:
         if cats and c["categorie"] not in cats:
             continue
-        if chaleurs and c["chaleur"] not in chaleurs:
-            continue
+        if insts:
+            mine = {norm(x).strip() for x in inst_tokens(c.get("institution"))}
+            if not mine & {norm(i).strip() for i in insts}:
+                continue
         if relations and c.get("relation", "") not in relations:
             continue
         blob = norm(" ".join(c.get(k, "") for k in SEARCH_FIELDS))
@@ -274,13 +298,11 @@ def contact_card_html(c, today: date | None = None, extra="") -> str:
         chips.append(f"<span class='chip'><i class='ph {icon}'></i> {e(c['categorie'])}</span>")
     if c.get("relation"):
         chips.append(f"<span class='chip'><i class='ph ph-tag'></i> {e(c['relation'])}</span>")
-    if c.get("chaleur"):
-        chips.append(f"<span class='chip chip--{CHALEUR_CLS.get(c['chaleur'], 'cold')}'>{e(c['chaleur'])}</span>")
     met = " · ".join(x for x in (c.get("rencontre_ou"), fr_date(c.get("date_rencontre"))) if x)
     lines = []
     if c.get("anecdote"):
         lines.append(f"<div class='nc-quote'><i class='ph ph-quotes'></i> {e(c['anecdote'])}</div>")
-    facts = [("ph-chat-circle-text", c.get("raconte")), ("ph-person-simple-run", c.get("hobbies")),
+    facts = [("ph-lightbulb", c.get("conseil")), ("ph-chat-circle-text", c.get("raconte")), ("ph-person-simple-run", c.get("hobbies")),
              ("ph-link-simple", c.get("points_communs")), ("ph-target", c.get("utile_pour"))]
     for ic, v in facts:
         if v:

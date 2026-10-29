@@ -63,7 +63,7 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
 [data-baseweb="popover"] ul, [role="listbox"] { background: rgba(15,23,42,0.95) !important; border: 1px solid rgba(147,197,253,0.3) !important; border-radius: 14px !important; }
 [role="option"] { color: #FFFFFF !important; }
 
-/* pastilles (catégorie, chaleur) */
+/* pastilles (catégorie, relation) */
 [data-testid="stPills"] button, [data-testid="stButtonGroup"] button {
   border-radius: 999px !important; border: 1px solid rgba(59,130,246,0.25) !important; background: rgba(15,23,42,0.6) !important; color: var(--text-muted) !important; font-weight: 700 !important; }
 [data-testid="stPills"] button[aria-checked="true"], [data-testid="stButtonGroup"] button[aria-checked="true"],
@@ -220,7 +220,7 @@ st.markdown("".join([
     "<div class='page-title'>Network</div>",
     f"<div class='page-sub'><b>{len(contacts)}</b> contacts · <b>{n_month}</b> ce mois-ci</div>",
     "" if MODE == "gsheet" else "<div class='page-sub' style='color:var(--amber);font-size:13px;'>Mode local (CSV) : aucun Google Sheet configuré.</div>",
-    nc.kpi_html([("En retard", len(late), "var(--red)"), ("Cette semaine", len(week), "var(--amber)"), ("Sans nouvelles", len(silent), "var(--blue-300)")]),
+    nc.kpi_html([("En retard", len(late), "var(--red)"), ("Cette semaine", len(week), "var(--amber)")]),
 ]), unsafe_allow_html=True)
 
 tab_add, tab_net, tab_rel = st.tabs(["Ajouter", "Réseau", "À relancer"])
@@ -253,13 +253,13 @@ with tab_add:
         ou = c1.text_input("Rencontré où", placeholder="Wick, soirée GUIC, cours…")
         quand = c2.date_input("Quand", value=today, format="DD.MM.YYYY")
         anecdote = st.text_area("Anecdote / phrase marquante", placeholder="La phrase drôle, le détail niche qu'il t'a raconté…", height=90)
-        raconte = st.text_area("Ce qu'il m'a raconté", placeholder="Son parcours, son équipe, un conseil…", height=90)
+        conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", placeholder="Un conseil sur le métier, la carrière, la vie… ou une phrase à retenir", height=90)
+        raconte = st.text_area("Ce qu'il m'a raconté", placeholder="Son parcours, son équipe…", height=90)
         c1, c2 = st.columns(2)
         hobbies = c1.text_input("Sport, hobbies", placeholder="Trail, ski, échecs…")
         communs = c2.text_input("Points communs", placeholder="Même école, même club…")
         utile = st.text_input("Utile pour…", placeholder="Conseils CV, intro à son équipe, stage…")
         relation = choice("Relation", nc.RELATIONS, key="add_rel", default="Network")
-        chaleur = choice("Chaleur du contact", nc.CHALEURS, key="add_heat", default="Tiède")
         with st.expander("Suivi et coordonnées"):
             tache = st.text_input("Tâche à faire", placeholder="Lui écrire sur LinkedIn, envoyer le CV…")
             c1, c2 = st.columns(2)
@@ -273,8 +273,8 @@ with tab_add:
         else:
             dup = nc.duplicates(contacts, prenom, nom)
             c = nc.new_contact(prenom=prenom, nom=nom, categorie=cat or "", institution=inst, poste=poste, rencontre_ou=ou,
-                               date_rencontre=quand, anecdote=anecdote, raconte=raconte, hobbies=hobbies, points_communs=communs,
-                               utile_pour=utile, chaleur=chaleur or "", relation=relation or "", tache=tache, echeance=ech, dernier_contact=quand,
+                               date_rencontre=quand, anecdote=anecdote, conseil=conseil, raconte=raconte, hobbies=hobbies, points_communs=communs,
+                               utile_pour=utile, relation=relation or "", tache=tache, echeance=ech, dernier_contact=quand,
                                telephone=tel, linkedin=li)
             try:
                 store.add(c)
@@ -299,12 +299,12 @@ def edit_form(c, key):
         inst = c1.text_input("Institution / école", c["institution"])
         poste = c2.text_input("Poste ou filière", c["poste"])
         anecdote = st.text_area("Anecdote / phrase marquante", c["anecdote"], height=80)
+        conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", c.get("conseil", ""), height=80)
         raconte = st.text_area("Ce qu'il m'a raconté", c["raconte"], height=80)
         c1, c2 = st.columns(2)
         hobbies = c1.text_input("Sport, hobbies", c["hobbies"])
         communs = c2.text_input("Points communs", c["points_communs"])
         utile = st.text_input("Utile pour…", c["utile_pour"])
-        chaleur = st.selectbox("Chaleur", ["—"] + nc.CHALEURS, index=(nc.CHALEURS.index(c["chaleur"]) + 1) if c["chaleur"] in nc.CHALEURS else 0)
         relation = st.selectbox("Relation", ["—"] + nc.RELATIONS, index=(nc.RELATIONS.index(c["relation"]) + 1) if c.get("relation") in nc.RELATIONS else 0)
         tache = st.text_input("Tâche à faire", c["tache"])
         c1, c2 = st.columns(2)
@@ -315,19 +315,22 @@ def edit_form(c, key):
         li = c2.text_input("Lien LinkedIn", c["linkedin"])
         if st.form_submit_button("Enregistrer les modifications"):
             save_update(c["id"], dict(prenom=prenom.strip(), nom=nom.strip(), categorie="" if cat == "—" else cat, institution=inst, poste=poste,
-                                      anecdote=anecdote, raconte=raconte, hobbies=hobbies, points_communs=communs, utile_pour=utile,
-                                      chaleur="" if chaleur == "—" else chaleur, relation="" if relation == "—" else relation, tache=tache, echeance=nc.iso(ech),
+                                      anecdote=anecdote, conseil=conseil, raconte=raconte, hobbies=hobbies, points_communs=communs, utile_pour=utile,
+                                      relation="" if relation == "—" else relation, tache=tache, echeance=nc.iso(ech),
                                       dernier_contact=nc.iso(dern), telephone=tel, linkedin=li))
             st.rerun()
 
 
 with tab_net:
     q = st.text_input("Rechercher", placeholder="Nom, banque, anecdote, hobby…", key="q")
-    c1, c2 = st.columns([3, 2])
-    cats = c1.multiselect("Catégories", CAT_NAMES, key="f_cat")
-    heat = c2.multiselect("Chaleur", nc.CHALEURS, key="f_heat")
+    inst_opts = nc.institutions(contacts)
+    inst_count = dict(inst_opts)
+    c1, c2 = st.columns(2)
+    insts = c1.multiselect("Institution", [i for i, _ in inst_opts], key="f_inst", format_func=lambda i: f"{i} ({inst_count.get(i, 0)})",
+                           placeholder="JP Morgan, GSEM, UBS…")
+    cats = c2.multiselect("Catégories", CAT_NAMES, key="f_cat")
     rels = st.multiselect("Relation", nc.RELATIONS, key="f_rel")
-    found = nc.search(contacts, q, cats, heat, rels)
+    found = nc.search(contacts, q, cats, insts, rels)
     st.markdown(f"<div class='section-title'>Contacts <span class='count'>{len(found)}</span></div>", unsafe_allow_html=True)
     if not contacts:
         st.markdown("<div class='hint'>Ton réseau est vide pour l'instant : ajoute ta première rencontre dans l'onglet Ajouter.</div>", unsafe_allow_html=True)
@@ -369,4 +372,3 @@ def relance_block(title, items, kind):
 with tab_rel:
     relance_block("En retard", late, "late")
     relance_block("Cette semaine", week, "week")
-    relance_block(f"Sans nouvelles depuis {nc.SANS_NOUVELLES_JOURS} jours (chauds et tièdes)", silent, "silent")
