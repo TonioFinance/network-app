@@ -16,7 +16,7 @@ from pathlib import Path
 COLUMNS = [
     "id", "cree_le", "prenom", "nom", "categorie", "institution", "poste", "rencontre_ou", "date_rencontre",
     "anecdote", "raconte", "hobbies", "points_communs", "utile_pour", "chaleur", "tache", "echeance",
-    "dernier_contact", "telephone", "linkedin", "importe",
+    "dernier_contact", "telephone", "linkedin", "importe", "relation",
 ]
 LABELS = {
     "prenom": "Prénom", "nom": "Nom", "categorie": "Catégorie", "institution": "Institution / école",
@@ -24,7 +24,7 @@ LABELS = {
     "anecdote": "Anecdote / phrase marquante", "raconte": "Ce qu'il m'a raconté", "hobbies": "Sport, hobbies",
     "points_communs": "Points communs", "utile_pour": "Utile pour…", "chaleur": "Chaleur du contact",
     "tache": "Tâche à faire", "echeance": "Échéance", "dernier_contact": "Dernier contact",
-    "telephone": "Numéro", "linkedin": "Lien LinkedIn",
+    "telephone": "Numéro", "linkedin": "Lien LinkedIn", "relation": "Relation",
 }
 
 # Catégories : (nom, icône Phosphor). Le premier groupe = pro, le second = études et perso.
@@ -46,6 +46,7 @@ CATEGORIES = [
     ("Perso / Amis", "ph-heart"),
 ]
 CAT_ICON = dict(CATEGORIES)
+RELATIONS = ["Network", "Ami", "À contacter"]
 CHALEURS = ["Chaud", "Tiède", "Froid"]
 CHALEUR_CLS = {"Chaud": "hot", "Tiède": "warm", "Froid": "cold"}
 SANS_NOUVELLES_JOURS = 45          # « À relancer » : contact chaud ou tiède sans nouvelles depuis ce nombre de jours
@@ -207,13 +208,15 @@ SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontr
                  "hobbies", "points_communs", "utile_pour", "tache"]
 
 
-def search(contacts, q="", cats=None, chaleurs=None):
+def search(contacts, q="", cats=None, chaleurs=None, relations=None):
     words = norm(q).split()
     out = []
     for c in contacts:
         if cats and c["categorie"] not in cats:
             continue
         if chaleurs and c["chaleur"] not in chaleurs:
+            continue
+        if relations and c.get("relation", "") not in relations:
             continue
         blob = norm(" ".join(c.get(k, "") for k in SEARCH_FIELDS))
         if all(w in blob for w in words):
@@ -269,6 +272,8 @@ def contact_card_html(c, today: date | None = None, extra="") -> str:
     chips = []
     if c.get("categorie"):
         chips.append(f"<span class='chip'><i class='ph {icon}'></i> {e(c['categorie'])}</span>")
+    if c.get("relation"):
+        chips.append(f"<span class='chip'><i class='ph ph-tag'></i> {e(c['relation'])}</span>")
     if c.get("chaleur"):
         chips.append(f"<span class='chip chip--{CHALEUR_CLS.get(c['chaleur'], 'cold')}'>{e(c['chaleur'])}</span>")
     met = " · ".join(x for x in (c.get("rencontre_ou"), fr_date(c.get("date_rencontre"))) if x)

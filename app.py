@@ -258,6 +258,7 @@ with tab_add:
         hobbies = c1.text_input("Sport, hobbies", placeholder="Trail, ski, échecs…")
         communs = c2.text_input("Points communs", placeholder="Même école, même club…")
         utile = st.text_input("Utile pour…", placeholder="Conseils CV, intro à son équipe, stage…")
+        relation = choice("Relation", nc.RELATIONS, key="add_rel", default="Network")
         chaleur = choice("Chaleur du contact", nc.CHALEURS, key="add_heat", default="Tiède")
         with st.expander("Suivi et coordonnées"):
             tache = st.text_input("Tâche à faire", placeholder="Lui écrire sur LinkedIn, envoyer le CV…")
@@ -273,7 +274,7 @@ with tab_add:
             dup = nc.duplicates(contacts, prenom, nom)
             c = nc.new_contact(prenom=prenom, nom=nom, categorie=cat or "", institution=inst, poste=poste, rencontre_ou=ou,
                                date_rencontre=quand, anecdote=anecdote, raconte=raconte, hobbies=hobbies, points_communs=communs,
-                               utile_pour=utile, chaleur=chaleur or "", tache=tache, echeance=ech, dernier_contact=quand,
+                               utile_pour=utile, chaleur=chaleur or "", relation=relation or "", tache=tache, echeance=ech, dernier_contact=quand,
                                telephone=tel, linkedin=li)
             try:
                 store.add(c)
@@ -304,6 +305,7 @@ def edit_form(c, key):
         communs = c2.text_input("Points communs", c["points_communs"])
         utile = st.text_input("Utile pour…", c["utile_pour"])
         chaleur = st.selectbox("Chaleur", ["—"] + nc.CHALEURS, index=(nc.CHALEURS.index(c["chaleur"]) + 1) if c["chaleur"] in nc.CHALEURS else 0)
+        relation = st.selectbox("Relation", ["—"] + nc.RELATIONS, index=(nc.RELATIONS.index(c["relation"]) + 1) if c.get("relation") in nc.RELATIONS else 0)
         tache = st.text_input("Tâche à faire", c["tache"])
         c1, c2 = st.columns(2)
         ech = c1.date_input("Échéance", value=nc.parse_date(c["echeance"]), format="DD.MM.YYYY")
@@ -314,7 +316,7 @@ def edit_form(c, key):
         if st.form_submit_button("Enregistrer les modifications"):
             save_update(c["id"], dict(prenom=prenom.strip(), nom=nom.strip(), categorie="" if cat == "—" else cat, institution=inst, poste=poste,
                                       anecdote=anecdote, raconte=raconte, hobbies=hobbies, points_communs=communs, utile_pour=utile,
-                                      chaleur="" if chaleur == "—" else chaleur, tache=tache, echeance=nc.iso(ech),
+                                      chaleur="" if chaleur == "—" else chaleur, relation="" if relation == "—" else relation, tache=tache, echeance=nc.iso(ech),
                                       dernier_contact=nc.iso(dern), telephone=tel, linkedin=li))
             st.rerun()
 
@@ -324,7 +326,8 @@ with tab_net:
     c1, c2 = st.columns([3, 2])
     cats = c1.multiselect("Catégories", CAT_NAMES, key="f_cat")
     heat = c2.multiselect("Chaleur", nc.CHALEURS, key="f_heat")
-    found = nc.search(contacts, q, cats, heat)
+    rels = st.multiselect("Relation", nc.RELATIONS, key="f_rel")
+    found = nc.search(contacts, q, cats, heat, rels)
     st.markdown(f"<div class='section-title'>Contacts <span class='count'>{len(found)}</span></div>", unsafe_allow_html=True)
     if not contacts:
         st.markdown("<div class='hint'>Ton réseau est vide pour l'instant : ajoute ta première rencontre dans l'onglet Ajouter.</div>", unsafe_allow_html=True)
