@@ -1,12 +1,13 @@
 """Logique de l'app Network (sans Streamlit) : colonnes, stockage Google Sheet ou CSV local, relances, cartes HTML.
 
-Le Google Sheet a un onglet « Contacts » dont la ligne 1 contient les identifiants de COLUMNS.
-Il est créé automatiquement au premier lancement.
+Le Google Sheet a deux onglets, créés automatiquement : « Saisies » (journal de ce qui est saisi dans l'app)
+et « Réseau » (copie de l'Excel, que l'app affiche). L'Excel prévaut : voir importer_network.py.
 """
 from __future__ import annotations
 
 import csv
 import html
+import json
 import re
 import os
 import uuid
@@ -141,46 +142,108 @@ class CsvStore:
         self._write([r for r in self.all() if r["id"] != cid])
 
 
-class SheetStore:
-    """Google Sheet (gspread). Onglet « Contacts », ligne 1 = COLUMNS. Les colonnes manquantes sont ajoutées à droite."""
+MIRROR_TAB = "Réseau"          # copie de l'Excel (réécrite à chaque synchro) : c'est ce que l'app affiche
+JOURNAL_TAB = "Saisies"        # tout ce que tu as saisi dans l'app (ajouts et modifications), jamais réécrit
+OLD_TAB = "Contacts"           # ancien onglet unique (avant la synchro avec l'Excel)
+JOURNAL_HEAD = ["horodatage", "action", "statut", "changements"] + COLUMNS
+A_SYNCHRONISER = "à synchroniser"
 
-    def __init__(self, gc, sheet_id: str, tab: str = "Contacts"):
-        sh = gc.open_by_key(sheet_id)
+
+def _a1(row: int, col: int) -> str:
+    letters = ""
+    while col:
+        col, r = divmod(col - 1, 26)
+        letters = chr(65 + r) + letters
+    return f"{letters}{row}"
+
+
+def _records(vals, keys=COLUMNS, need_id=True) -> list:
+    if not vals:
+        return []
+    head = vals[0]
+    out = []
+    for row in vals[1:]:
+        r = {h: (row[i] if i < len(row) else "") for i, h in enumerate(head)}
+        if not need_id or r.get("id"):
+            out.append({k: r.get(k, "") for k in keys})
+    return out
+
+
+class SheetStore:
+    """Google Sheet à deux onglets.
+    « Saisies » : journal de tout ce qui est saisi dans l'app (ajout, modification), statut « à synchroniser » puis le résultat.
+    « Réseau » : copie de l'onglet Network de l'Excel, réécrite à chaque synchro. L'app lit et affiche cet onglet.
+    L'Excel prévaut : la synchro (importer_network.py) reporte les saisies dans l'Excel, puis recopie l'Excel dans « Réseau »."""
+
+    def __init__(self, gc, sheet_id: str):
+        self.sh = sh = gc.open_by_key(sheet_id)
+        titles = [w.title for w in sh.worksheets()]
+        reprise = []
+        if OLD_TAB in titles:
+            old = sh.worksheet(OLD_TAB)
+            reprise = _records(old.get_all_values())
+            if MIRROR_TAB not in titles:
+                old.update_title(MIRROR_TAB)
+            else:
+                name = "Ancien onglet Contacts"
+                if name in titles:
+                    name += " " + datetime.now().strftime("%Y-%m-%d %Hh%M")
+                old.update_title(name)
+        self.ws = self._tab(MIRROR_TAB, COLUMNS)
+        self.head = self._ensure_head(self.ws, COLUMNS)
+        self.jws = self._tab(JOURNAL_TAB, JOURNAL_HEAD)
+        self.jhead = self._ensure_head(self.jws, JOURNAL_HEAD)
         try:
-            self.ws = sh.worksheet(tab)
+            self.jws.update_index(0)
+            self.ws.update_index(1)
         except Exception:
-            self.ws = sh.add_worksheet(title=tab, rows=500, cols=len(COLUMNS))
-            self.ws.update(range_name="A1", values=[COLUMNS])
-        head = self.ws.row_values(1)
+            pass
+        if reprise:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M")
+            self.jws.append_rows([self._jrow(now, "ajout (reprise)", A_SYNCHRONISER, "", c) for c in reprise], value_input_option="RAW")
+
+    # ---- outils
+    def _tab(self, name, head):
+        try:
+            return self.sh.worksheet(name)
+        except Exception:
+            ws = self.sh.add_worksheet(title=name, rows=1000, cols=len(head))
+            ws.update(range_name="A1", values=[head])
+            return ws
+
+    @staticmethod
+    def _ensure_head(ws, cols):
+        head = ws.row_values(1)
         if not head:
-            self.ws.update(range_name="A1", values=[COLUMNS])
-            head = list(COLUMNS)
-        missing = [c for c in COLUMNS if c not in head]
+            ws.update(range_name="A1", values=[list(cols)])
+            return list(cols)
+        missing = [c for c in cols if c not in head]
         if missing:
             head = head + missing
-            if self.ws.col_count < len(head):
-                self.ws.add_cols(len(head) - self.ws.col_count)
-            self.ws.update(range_name="A1", values=[head])
-        self.head = head
+            if ws.col_count < len(head):
+                ws.add_cols(len(head) - ws.col_count)
+            ws.update(range_name="A1", values=[head])
+        return head
 
-    def all(self) -> list[dict]:
-        vals = self.ws.get_all_values()
-        if not vals:
-            return []
-        head = vals[0]
-        out = []
-        for row in vals[1:]:
-            r = {h: (row[i] if i < len(row) else "") for i, h in enumerate(head)}
-            if r.get("id"):
-                out.append({k: r.get(k, "") for k in COLUMNS})
-        return out
+    def _jrow(self, when, action, statut, changements, c):
+        vals = {"horodatage": when, "action": action, "statut": statut, "changements": changements}
+        return [vals[h] if h in vals else ("" if c.get(h) is None else str(c.get(h, ""))) for h in self.jhead]
 
-    def add(self, c: dict):
-        self.ws.append_row([c.get(h, "") for h in self.head], value_input_option="RAW")
+    def _journal(self, action, c, changements=""):
+        self.jws.append_row(self._jrow(datetime.now().strftime("%Y-%m-%d %H:%M"), action, A_SYNCHRONISER, changements, c),
+                            value_input_option="RAW")
 
     def _row_of(self, cid: str) -> int | None:
         ids = self.ws.col_values(self.head.index("id") + 1)
         return ids.index(cid) + 1 if cid in ids else None
+
+    # ---- utilisé par l'app
+    def all(self) -> list[dict]:
+        return _records(self.ws.get_all_values())
+
+    def add(self, c: dict):
+        self.ws.append_row([c.get(h, "") for h in self.head], value_input_option="RAW")
+        self._journal("ajout", c)
 
     def update(self, cid: str, changes: dict):
         r = self._row_of(cid)
@@ -188,15 +251,43 @@ class SheetStore:
             raise KeyError(cid)
         cur = self.ws.row_values(r)
         cur += [""] * (len(self.head) - len(cur))
+        before = dict(zip(self.head, cur))
+        diff = {}
         for k, v in changes.items():
             if k in self.head and k != "id":
-                cur[self.head.index(k)] = "" if v is None else str(v)
+                v = "" if v is None else str(v)
+                if (before.get(k) or "") != v:
+                    diff[k] = [before.get(k) or "", v]
+                cur[self.head.index(k)] = v
+        if not diff:
+            return
         self.ws.update(range_name=f"A{r}", values=[cur], value_input_option="RAW")
+        after = dict(zip(self.head, cur))
+        self._journal("modification", after, json.dumps(diff, ensure_ascii=False))
 
-    def delete(self, cid: str):
-        r = self._row_of(cid)
-        if r:
-            self.ws.delete_rows(r)
+    # ---- utilisé par la synchro
+    def journal(self) -> list:
+        """[(numéro de ligne, saisie)] dans l'ordre chronologique."""
+        vals = self.jws.get_all_values()
+        recs = _records(vals, keys=JOURNAL_HEAD, need_id=False)
+        return [(i + 2, r) for i, r in enumerate(recs) if any(r.values())]
+
+    def mark(self, marks):
+        """marks = [(ligne, statut)] : écrit le résultat de la synchro dans la colonne statut du journal."""
+        if not marks:
+            return
+        col = self.jhead.index("statut") + 1
+        self.jws.batch_update([{"range": _a1(r, col), "values": [[st]]} for r, st in marks], value_input_option="RAW")
+
+    def replace_mirror(self, contacts: list):
+        values = [list(COLUMNS)] + [[("" if c.get(k) is None else str(c.get(k, ""))) for k in COLUMNS] for c in contacts]
+        if self.ws.row_count < len(values) + 10:
+            self.ws.add_rows(len(values) + 10 - self.ws.row_count)
+        if self.ws.col_count < len(COLUMNS):
+            self.ws.add_cols(len(COLUMNS) - self.ws.col_count)
+        self.ws.clear()
+        self.ws.update(range_name="A1", values=values, value_input_option="RAW")
+        self.head = list(COLUMNS)
 
 
 # --------------------------------------------------------------------------- recherche et relances

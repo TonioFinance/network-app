@@ -332,6 +332,7 @@ with tab_net:
     rels = st.multiselect("Relation", nc.RELATIONS, key="f_rel")
     found = nc.search(contacts, q, cats, insts, rels)
     st.markdown(f"<div class='section-title'>Contacts <span class='count'>{len(found)}</span></div>", unsafe_allow_html=True)
+    st.caption("Copie de ton Excel, qui fait foi. Tes ajouts et modifications y sont reportés à la prochaine synchro (21h30 ou double-clic sur Synchroniser_Network).")
     if not contacts:
         st.markdown("<div class='hint'>Ton réseau est vide pour l'instant : ajoute ta première rencontre dans l'onglet Ajouter.</div>", unsafe_allow_html=True)
     elif not found:
