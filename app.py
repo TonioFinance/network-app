@@ -72,9 +72,14 @@ h1, h2, h3, h4 { color: #FFFFFF !important; font-weight: 700 !important; letter-
   border-radius: 20px; padding: 18px 20px 8px; margin-top: 14px; box-shadow: 0 10px 28px rgba(0,0,0,0.28); }
 [class*="st-key-nwcard"] [data-testid="stCheckbox"] label p { font-size: 11px !important; font-weight: 800 !important; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-muted) !important; }
 [class*="st-key-nwcard"] [data-testid="stCheckbox"] { margin-top: 6px; }
+[class*="st-key-nwcard"] [data-baseweb="textarea"], [class*="st-key-nwcard"] [data-baseweb="input"] { background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important; border-radius: 12px !important; }
+[class*="st-key-nwcard"] textarea:disabled, [class*="st-key-nwcard"] input:disabled { opacity: 0.35; }
+[class*="st-key-nwcard"] [data-testid="stExpander"] { background: transparent !important; border: 1px dashed rgba(255,255,255,0.14) !important; margin-top: 8px; }
+[class*="st-key-nwcard"] [data-testid="stExpander"] summary p { font-size: 12.5px; color: var(--text-dim); }
 .nw-val { display: flex; gap: 10px; margin: -2px 0 10px 32px; color: #E2E8F0; font-size: 14.5px; line-height: 1.55; overflow-wrap: anywhere; }
 .nw-val i { color: var(--blue-400); font-size: 16px; margin-top: 3px; flex-shrink: 0; }
-.nw-note { margin: -6px 0 12px 58px; color: var(--text-dim); font-size: 12px; font-weight: 600; }
+.nw-note { margin: -8px 0 12px 4px; color: var(--text-dim); font-size: 12px; font-weight: 600; }
 /* rond du micro = logo Nexus */
 [class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]),
 [class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) {
@@ -431,7 +436,7 @@ with tab_add:
                         if st.session_state.get("add_pref", {}).get("_ai"):
                             known0 = {}
                         r0, m0 = nc.gemini_audio_json(nc.contact_prompt(desc.strip() or "(voir l'enregistrement audio)", today.isoformat(), known0),
-                                                      audio.getvalue(), getattr(audio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model") or None)
+                                                      audio.getvalue(), getattr(audio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model") or None, transcript=secret("dictee_texte") == "oui")
                         h0 = str(r0.get("transcription") or "").strip()
                         if h0 or r0.get("champs"):
                             direct_a, heard = r0, h0
@@ -578,7 +583,7 @@ with tab_news:
                         sel0 = [by_id[x] for x in picked if x in by_id]
                         r0, m0 = nc.gemini_audio_json(nc.news_prompt(txt.strip() or "(voir l'enregistrement audio)", contacts, today.isoformat(),
                                                                      ev_date.isoformat(), sel0),
-                                                      naudio.getvalue(), getattr(naudio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model") or None)
+                                                      naudio.getvalue(), getattr(naudio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model") or None, transcript=secret("dictee_texte") == "oui")
                         h0 = str(r0.get("transcription") or "").strip()
                         if h0 or r0.get("personnes"):
                             direct, heard = (r0, m0), h0
@@ -653,54 +658,51 @@ with tab_news:
                 card = st.container(key=f"nwcard_{news['n']}_{i}")
             except TypeError:
                 card = st.container(border=True)
-            more = st.container()
             with card:
                 head = st.empty()
                 if p["doute"]:
                     st.warning(p["doute"])
-                target = st.selectbox("Contact", opts, index=opts.index(default), key=f"{k0}_t{i}", format_func=contact_label)
+                rows_box = st.container()
+                # le contact est déjà indiqué en haut : le changement (ou « ignorer ») reste discret, ouvert seulement en cas de doute
+                with st.expander("Ce n'est pas la bonne personne ? Changer ou ignorer", expanded=bool(p["doute"] or len(first) > 1)):
+                    target = st.selectbox("Contact", opts, index=opts.index(default), key=f"{k0}_t{i}", format_func=contact_label)
+                    pr, no = p["prenom"], p["nom"]
+                    if target == NEW:
+                        c1, c2 = st.columns(2)
+                        pr = c1.text_input("Prénom", p["prenom"], key=f"{k0}_p{i}")
+                        no = c2.text_input("Nom", p["nom"], key=f"{k0}_n{i}")
             if target == SKIP:
                 head.markdown("<div class='nc-sub'>Personne ignorée : rien ne sera enregistré.</div>", unsafe_allow_html=True)
                 continue
-            pr, no = p["prenom"], p["nom"]
-            if target == NEW:
-                with card:
-                    c1, c2 = st.columns(2)
-                    pr = c1.text_input("Prénom", p["prenom"], key=f"{k0}_p{i}")
-                    no = c2.text_input("Nom", p["nom"], key=f"{k0}_n{i}")
             cur_c = by_id.get(target, {})
-            vals = {}
-            with more:
-                with st.expander("Modifier les textes de " + (pr or "cette personne")):
-                    for f, v in p["champs"].items():
-                        if f == "echeance":
-                            vals[f] = nc.iso(st.date_input("Échéance", value=nc.parse_date(v), format="DD.MM.YYYY", key=f"{k0}_v{i}_{f}"))
-                        else:
-                            vals[f] = st.text_area(nc.LABELS.get(f, f), v, key=f"{k0}_v{i}_{f}", height=68 if len(v) < 90 else 110)
-                    h_txt = st.text_input("Historique", nc.hist_line(news["date"], ev_name, p["historique"]), key=f"{k0}_h{i}_{nc.norm(ev_name)[:20]}")
-            fields, h_use, n_items = {}, False, 0
-            order = [f for f in NEWS_ORDER if f in vals] + [f for f in vals if f not in NEWS_ORDER]
-            with card:
-                for f in order + (["historique"] if h_txt.strip() else []):
-                    val = h_txt if f == "historique" else vals[f]
-                    if not (val or "").strip():
+            fields, h, n_items = {}, "", 0
+            order = [f for f in NEWS_ORDER if f in p["champs"]] + [f for f in p["champs"] if f not in NEWS_ORDER]
+            h_default = nc.hist_line(news["date"], ev_name, p["historique"])
+            with rows_box:
+                for f in order + (["historique"] if h_default.strip() else []):
+                    v = h_default if f == "historique" else p["champs"][f]
+                    if not (v or "").strip() and f != "echeance":
                         continue
                     use = st.checkbox(nc.LABELS.get(f, f), value=True, key=f"{k0}_u{i}_{f}")
-                    shown = nc.fr_date(val) if f == "echeance" else val
-                    note = ""
+                    kk = f"{k0}_v{i}_{f}"
+                    if f == "echeance":
+                        val = nc.iso(st.date_input("Échéance", value=nc.parse_date(v), format="DD.MM.YYYY", key=kk,
+                                                   label_visibility="collapsed", disabled=not use))
+                    elif f == "historique":
+                        val = st.text_input("Historique", v, key=f"{k0}_h{i}_{nc.norm(ev_name)[:20]}", label_visibility="collapsed", disabled=not use)
+                    else:
+                        val = st.text_area(nc.LABELS.get(f, f), v, key=kk, label_visibility="collapsed", disabled=not use,
+                                           height=68 if len(v) < 90 else 110)
                     cur = (cur_c.get(f) or "").strip() if target != NEW and f != "historique" else ""
                     if cur:
-                        note = (f"<div class='nw-note'>s'ajoute à : {nc.e(cur[:110])}</div>" if f in nc.APPEND_FIELDS
-                                else f"<div class='nw-note'>remplace : {nc.e(cur[:110])}</div>")
-                    st.markdown(f"<div class='nw-val'><i class='ph {NEWS_ICON.get(f, 'ph-note-pencil')}'></i><span>{nc.e(shown)}</span></div>{note}",
-                                unsafe_allow_html=True)
-                    if use:
+                        st.markdown((f"<div class='nw-note'>s'ajoute à : {nc.e(cur[:110])}</div>" if f in nc.APPEND_FIELDS
+                                     else f"<div class='nw-note'>remplace : {nc.e(cur[:110])}</div>"), unsafe_allow_html=True)
+                    if use and (val or "").strip():
                         n_items += 1
                         if f == "historique":
-                            h_use = True
+                            h = val
                         else:
                             fields[f] = val
-            h = h_txt if h_use else ""
             who = {"prenom": pr, "nom": no} if target == NEW else cur_c
             sub = " · ".join(x for x in (nc.study_line(cur_c), nc.job_line(cur_c)) if x) if target != NEW else ""
             badge = ("<span class='chip chip--assoc'><i class='ph ph-user-plus'></i> Nouveau contact</span>" if target == NEW
