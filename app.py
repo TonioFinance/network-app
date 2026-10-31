@@ -248,6 +248,45 @@ st.markdown("".join([
 tab_add, tab_news, tab_net, tab_rel = st.tabs(["Ajouter", "Nouvelles", "Réseau", "À relancer"])
 
 CAT_NAMES = [c for c, _ in nc.CATEGORIES]
+ECOLES = sorted({c.get("ecole", "") for c in contacts if c.get("ecole")}, key=nc.norm)
+EMPLOYEURS = sorted({c.get("employeur", "") for c in contacts if c.get("employeur")}, key=nc.norm)
+FONCTIONS = sorted({c.get("fonction", "") for c in contacts if c.get("fonction")}, key=nc.norm)
+
+
+def combo(label, options, value="", key=None, placeholder=""):
+    """Liste qui propose les valeurs déjà saisies, mais accepte n'importe quelle nouvelle valeur (tape-la puis Entrée)."""
+    opts = list(options)
+    if value and value not in opts:
+        opts = [value] + opts
+    try:
+        v = st.selectbox(label, opts, index=opts.index(value) if value in opts else None, key=key,
+                         accept_new_options=True, placeholder=placeholder or "Choisis ou tape…")
+        return (v or "").strip()
+    except TypeError:                                   # Streamlit trop ancien : simple champ texte
+        return st.text_input(label, value, key=key, placeholder=placeholder).strip()
+
+
+def pick(label, options, value="", key=None):
+    opts = ["—"] + options
+    v = st.selectbox(label, opts, index=opts.index(value) if value in opts else 0, key=key)
+    return "" if v == "—" else v
+
+
+def study_job_fields(c=None, k="add"):
+    c = c or {}
+    c1, c2, c3 = st.columns([3, 1.4, 1.8])
+    with c1:
+        ecole = combo("École / faculté", ECOLES, c.get("ecole", ""), key=f"{k}_ecole", placeholder="GSEM, HEC Lausanne…")
+    with c2:
+        niveau = pick("Niveau", nc.NIVEAUX, c.get("niveau", ""), key=f"{k}_niv")
+    with c3:
+        etudes = pick("Études", nc.ETUDES, c.get("etudes", ""), key=f"{k}_etu")
+    c1, c2 = st.columns(2)
+    with c1:
+        employeur = combo("Employeur", EMPLOYEURS, c.get("employeur", ""), key=f"{k}_emp", placeholder="UBS, Pictet, EY…")
+    with c2:
+        fonction = combo("Poste", FONCTIONS, c.get("fonction", ""), key=f"{k}_fon", placeholder="Analyst, stage, temps partiel…")
+    return dict(ecole=ecole, niveau=niveau, etudes=etudes, employeur=employeur, fonction=fonction)
 
 
 def choice(label, options, key, default=None):
@@ -268,9 +307,7 @@ with tab_add:
         prenom = c1.text_input("Prénom *", placeholder="Prénom")
         nom = c2.text_input("Nom *", placeholder="Nom")
         cat = choice("Catégorie", CAT_NAMES, key="add_cat")
-        c1, c2 = st.columns(2)
-        inst = c1.text_input("Institution / école", placeholder="Pictet, UNIGE, HEC…")
-        poste = c2.text_input("Poste ou filière", placeholder="Analyst, MSc Finance 2e année…")
+        sj = study_job_fields(None, "add")
         c1, c2 = st.columns([3, 2])
         ou = c1.text_input("Rencontré où", placeholder="Wick, soirée GUIC, cours…")
         quand = c2.date_input("Quand", value=today, format="DD.MM.YYYY")
@@ -295,7 +332,7 @@ with tab_add:
             st.error("Il faut au moins le prénom et le nom.")
         else:
             dup = nc.duplicates(contacts, prenom, nom)
-            c = nc.new_contact(prenom=prenom, nom=nom, categorie=cat or "", institution=inst, poste=poste, rencontre_ou=ou,
+            c = nc.new_contact(prenom=prenom, nom=nom, categorie=cat or "", **sj, rencontre_ou=ou,
                                date_rencontre=quand, anecdote=anecdote, conseil=conseil, raconte=raconte, projets=projets, hobbies=hobbies, points_communs=communs,
                                utile_pour=utile, relation=relation or "", tache=tache, echeance=ech, dernier_contact=quand,
                                telephone=tel, linkedin=li)
@@ -444,9 +481,7 @@ def edit_form(c, key):
         prenom = c1.text_input("Prénom", c["prenom"])
         nom = c2.text_input("Nom", c["nom"])
         cat = st.selectbox("Catégorie", ["—"] + CAT_NAMES, index=(CAT_NAMES.index(c["categorie"]) + 1) if c["categorie"] in CAT_NAMES else 0)
-        c1, c2 = st.columns(2)
-        inst = c1.text_input("Institution / école", c["institution"])
-        poste = c2.text_input("Poste ou filière", c["poste"])
+        sj = study_job_fields(c, f"ed_{key}")
         raconte = st.text_area("Personnalité, relation", c["raconte"], height=80)
         projets = st.text_area("Projets d'avenir", c.get("projets", ""), height=70)
         conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", c.get("conseil", ""), height=70)
@@ -464,7 +499,7 @@ def edit_form(c, key):
         tel = c1.text_input("Numéro", c["telephone"])
         li = c2.text_input("Lien LinkedIn", c["linkedin"])
         if st.form_submit_button("Enregistrer les modifications"):
-            save_update(c["id"], dict(prenom=prenom.strip(), nom=nom.strip(), categorie="" if cat == "—" else cat, institution=inst, poste=poste,
+            save_update(c["id"], dict(prenom=prenom.strip(), nom=nom.strip(), categorie="" if cat == "—" else cat, **sj,
                                       anecdote=anecdote, conseil=conseil, raconte=raconte, projets=projets, hobbies=hobbies, points_communs=communs, utile_pour=utile,
                                       relation="" if relation == "—" else relation, tache=tache, echeance=nc.iso(ech),
                                       dernier_contact=nc.iso(dern), telephone=tel, linkedin=li))
@@ -499,7 +534,7 @@ with tab_net:
     inst_count = dict(inst_opts)
     c1, c2 = st.columns(2)
     insts = c1.multiselect("Institution", [i for i, _ in inst_opts], key="f_inst", format_func=lambda i: f"{i} ({inst_count.get(i, 0)})",
-                           placeholder="JP Morgan, GSEM, UBS…")
+                           placeholder="UBS, GSEM, HEC Lausanne…")
     cats = c2.multiselect("Catégories", CAT_NAMES, key="f_cat")
     rels = st.multiselect("Relation", nc.RELATIONS, key="f_rel")
     found = nc.search(contacts, q, cats, insts, rels)

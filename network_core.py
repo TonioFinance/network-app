@@ -19,6 +19,7 @@ COLUMNS = [
     "id", "cree_le", "prenom", "nom", "categorie", "institution", "poste", "rencontre_ou", "date_rencontre",
     "anecdote", "raconte", "hobbies", "points_communs", "utile_pour", "chaleur", "tache", "echeance",
     "dernier_contact", "telephone", "linkedin", "importe", "relation", "conseil", "historique", "projets",
+    "ecole", "niveau", "etudes", "employeur", "fonction",
 ]
 LABELS = {
     "prenom": "Prénom", "nom": "Nom", "categorie": "Catégorie", "institution": "Institution / école",
@@ -28,6 +29,7 @@ LABELS = {
     "tache": "Tâche à faire", "echeance": "Échéance", "dernier_contact": "Dernier contact",
     "telephone": "Numéro", "linkedin": "Lien LinkedIn", "relation": "Relation",
     "conseil": "Conseil qu'il m'a donné", "historique": "Historique", "projets": "Projets d'avenir",
+    "ecole": "École / faculté", "niveau": "Niveau d'études", "etudes": "Études", "employeur": "Employeur", "fonction": "Poste",
 }
 
 # Catégories : (nom, icône Phosphor). Le premier groupe = pro, le second = études et perso.
@@ -50,6 +52,8 @@ CATEGORIES = [
 ]
 CAT_ICON = dict(CATEGORIES)
 RELATIONS = ["Network", "Ami", "À contacter"]
+NIVEAUX = ["B1", "B2", "B3", "M1", "M2", "Doctorat"]
+ETUDES = ["En cours", "Terminées"]
 CHALEURS = ["Chaud", "Tiède", "Froid"]
 CHALEUR_CLS = {"Chaud": "hot", "Tiède": "warm", "Froid": "cold"}
 SANS_NOUVELLES_JOURS = 45          # « À relancer » : contact chaud ou tiède sans nouvelles depuis ce nombre de jours
@@ -336,7 +340,7 @@ def norm(s: str) -> str:
     return "".join(ch for ch in s if not unicodedata.combining(ch))
 
 
-SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "historique", "raconte", "projets",
+SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "historique", "raconte", "projets", "ecole", "employeur", "fonction",
                  "hobbies", "points_communs", "utile_pour", "tache"]
 
 
@@ -350,11 +354,26 @@ def inst_tokens(s) -> list:
     return out
 
 
+def inst_of(c) -> list:
+    """Écoles et employeurs d'un contact (anciens champs « institution » si les nouveaux sont vides)."""
+    toks = inst_tokens(c.get("ecole")) + inst_tokens(c.get("employeur"))
+    return toks or [t for t in inst_tokens(c.get("institution")) if "préciser" not in t.lower()]
+
+
+def study_line(c) -> str:
+    lv = " ".join(x for x in (c.get("niveau"), f"({c['etudes'].lower()})" if c.get("etudes") else "") if x)
+    return " · ".join(x for x in (c.get("ecole"), lv) if x)
+
+
+def job_line(c) -> str:
+    return " · ".join(x for x in (c.get("employeur"), c.get("fonction")) if x)
+
+
 def institutions(contacts) -> list:
     """Liste (nom affiché, nombre de contacts), la plus fournie d'abord. Les variantes de casse sont regroupées."""
     count, label = {}, {}
     for c in contacts:
-        for t in {norm(x).strip(): x for x in inst_tokens(c.get("institution"))}.items():
+        for t in {norm(x).strip(): x for x in inst_of(c)}.items():
             count[t[0]] = count.get(t[0], 0) + 1
             label.setdefault(t[0], t[1])
     return sorted(((label[k], n) for k, n in count.items()), key=lambda x: (-x[1], norm(x[0])))
@@ -367,7 +386,7 @@ def search(contacts, q="", cats=None, insts=None, relations=None):
         if cats and c["categorie"] not in cats:
             continue
         if insts:
-            mine = {norm(x).strip() for x in inst_tokens(c.get("institution"))}
+            mine = {norm(x).strip() for x in inst_of(c)}
             if not mine & {norm(i).strip() for i in insts}:
                 continue
         if relations and c.get("relation", "") not in relations:
@@ -443,7 +462,11 @@ def _value_html(v, mode="points"):
 def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -> str:
     today = today or date.today()
     icon = CAT_ICON.get(c.get("categorie"), "ph-user")
-    sub = " · ".join(x for x in (c.get("institution"), c.get("poste")) if x)
+    lines_sub = [x for x in (study_line(c), job_line(c)) if x]
+    if not lines_sub:
+        old = " · ".join(x for x in (c.get("institution"), c.get("poste")) if x)
+        lines_sub = [old] if old else []
+    sub = "<br>".join(e(x) for x in lines_sub)
     chips = []
     if c.get("categorie"):
         chips.append(f"<span class='chip'><i class='ph {icon}'></i> {e(c['categorie'])}</span>")
@@ -488,7 +511,7 @@ def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -
          else f"<div class='nc-avatar'>{e(initials(c))}</div>"),
         "<div class='nc-id'>",
         f"<div class='nc-name'>{e(c.get('prenom'))} <b>{e((c.get('nom') or '').upper())}</b></div>",
-        f"<div class='nc-sub'>{e(sub)}</div>" if sub else "",
+        f"<div class='nc-sub'>{sub}</div>" if sub else "",
         "</div>", li, "</div>",
         f"<div class='nc-chips'>{''.join(chips)}</div>" if chips else "",
         task,
@@ -506,7 +529,7 @@ def kpi_html(items) -> str:
 
 # --------------------------------------------------------------------------- « Nouvelles » : texte libre rangé par l'IA (Gemini)
 APPEND_FIELDS = {"conseil": " · ", "anecdote": " · ", "raconte": " · ", "projets": " · ", "hobbies": ", ", "points_communs": ", ", "utile_pour": " · "}
-REPLACE_FIELDS = ["institution", "poste", "categorie", "relation", "tache", "echeance"]
+REPLACE_FIELDS = ["ecole", "niveau", "etudes", "employeur", "fonction", "categorie", "relation", "tache", "echeance"]
 NEWS_FIELDS = list(APPEND_FIELDS) + REPLACE_FIELDS
 GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"]
 
@@ -514,7 +537,7 @@ GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash
 def news_prompt(text, contacts, today, event_date, selected=None):
     """selected : contacts choisis par Antoine dans l'app (la note parle d'eux). Sinon, l'IA cherche dans tout le réseau."""
     pool = selected or contacts
-    roster = "\n".join(f"{c['id']} | {c.get('prenom', '')} {c.get('nom', '')} | {c.get('institution', '')} | {c.get('poste', '')}" for c in pool)
+    roster = "\n".join(f"{c['id']} | {c.get('prenom', '')} {c.get('nom', '')} | {study_line(c) or '-'} | {job_line(c) or c.get('institution', '') or '-'}" for c in pool)
     cats = ", ".join(n for n, _ in CATEGORIES)
     who = ("Antoine a déjà choisi les personnes concernées (liste ci-dessous) : range les informations sur elles. "
            "Si la note parle clairement d'une autre personne absente de la liste, ajoute-la avec contact_id = null."
@@ -526,7 +549,7 @@ après une rencontre ou un événement de networking : ce que des personnes lui 
 
 Date du jour : {today}. Date de la rencontre : {event_date}.
 
-Contacts (id | prénom nom | institution | poste) :
+Contacts (id | prénom nom | études | emploi) :
 {roster}
 
 Champs possibles par personne (ne mets QUE ceux que la note renseigne vraiment) :
@@ -537,8 +560,11 @@ Champs possibles par personne (ne mets QUE ceux que la note renseigne vraiment) 
 - hobbies : sports et loisirs
 - points_communs : ce qu'ils ont en commun
 - utile_pour : la valeur ajoutée de cette personne dans le réseau d'Antoine (son expertise, son milieu, les portes qu'elle connaît)
-- institution : nouvel employeur ou école (seulement si ça a changé)
-- poste : nouveau poste ou études (seulement si ça a changé)
+- ecole : école ou faculté (GSEM, HEC Lausanne, LSE…), seulement si nouveau ou changé
+- niveau : une de B1, B2, B3 (bachelor 1re à 3e année), M1, M2 (master), Doctorat — seulement si dit
+- etudes : « En cours » ou « Terminées » — seulement si dit
+- employeur : entreprise où il travaille (y compris stage ou temps partiel), seulement si nouveau ou changé
+- fonction : son poste chez cet employeur (Analyst, stage, temps partiel…), seulement si nouveau ou changé
 - categorie : une de : {cats} (seulement si évident et nouveau)
 - relation : Network, Ami ou À contacter (seulement si Antoine le dit)
 - tache : prochaine action d'Antoine envers cette personne
@@ -605,6 +631,10 @@ def clean_proposal(res, contacts):
                         continue
                     v = d.isoformat()
                 if k == "relation" and v not in RELATIONS:
+                    continue
+                if k == "niveau" and v not in NIVEAUX:
+                    continue
+                if k == "etudes" and v not in ETUDES:
                     continue
                 if k == "categorie" and v not in CAT_ICON:
                     continue
