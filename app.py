@@ -59,6 +59,26 @@ h1, h2, h3, h4 { color: #FFFFFF !important; font-weight: 700 !important; letter-
 [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
   background-color: rgba(15,23,42,0.6) !important; border: 1px solid rgba(59,130,246,0.2) !important; border-radius: var(--radius-sm) !important; }
 [data-testid="stTextInput"] input, [data-testid="stDateInput"] input, [data-testid="stTextArea"] textarea { color: #FFFFFF !important; font-size: 16px !important; }
+/* bloc « Raconte ta rencontre » */
+.st-key-dictee { background: linear-gradient(160deg, rgba(255,255,255,0.11) 0%, rgba(147,197,253,0.06) 55%, rgba(255,255,255,0.04) 100%);
+  border: 1px solid rgba(255,255,255,0.20); border-radius: 24px; padding: 20px 18px 16px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 40px rgba(37,99,235,0.20), inset 0 1px 0 rgba(255,255,255,0.18); margin-bottom: 18px; }
+.st-key-dictee [data-testid="stTextArea"] [data-baseweb="textarea"] { background: rgba(255,255,255,0.07) !important; border: 1px solid rgba(255,255,255,0.22) !important; border-radius: 16px !important; }
+.st-key-dictee textarea::placeholder { color: rgba(226,232,240,0.55) !important; }
+.st-key-dictee [data-testid="stAudioInput"] > div, .st-key-dictee [data-testid="stAudioInput"] section { background: rgba(255,255,255,0.10) !important;
+  border: 1px solid rgba(255,255,255,0.28) !important; border-radius: 18px !important; }
+/* rond du micro = logo Nexus */
+.st-key-dictee [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]),
+.st-key-dictee [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) {
+  background: url("__NEXUS__") center/cover no-repeat !important; border-radius: 50% !important; border: 1px solid rgba(255,255,255,0.35) !important;
+  box-shadow: 0 4px 16px rgba(109,40,217,0.45) !important; width: 40px !important; height: 40px !important; min-width: 40px !important; }
+.st-key-dictee [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]) svg,
+.st-key-dictee [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) svg { opacity: 0 !important; }
+.dict-title { display: flex; align-items: center; gap: 10px; color: #FFFFFF; font-size: 20px; font-weight: 900; letter-spacing: 0.3px; }
+.dict-title i { font-size: 24px; color: var(--blue-300); }
+.dict-sub { color: #CBD5E1; font-size: 13.5px; line-height: 1.5; margin: 6px 0 12px; }
+.check-title { color: #FFFFFF; font-size: 16px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; margin: 4px 0 8px; }
+.check-title span { color: var(--amber); font-size: 12px; letter-spacing: 0.5px; text-transform: none; margin-left: 8px; }
 label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; font-size: 12px !important; font-weight: 700 !important; letter-spacing: 1px; text-transform: uppercase; }
 [data-baseweb="popover"] ul, [role="listbox"] { background: rgba(15,23,42,0.95) !important; border: 1px solid rgba(147,197,253,0.3) !important; border-radius: 14px !important; }
 [role="option"] { color: #FFFFFF !important; }
@@ -156,9 +176,17 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
 """
 
 
+NEXUS_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
+             "<stop offset='0' stop-color='#0f172a'/><stop offset='1' stop-color='#6d28d9'/></linearGradient></defs>"
+             "<rect width='64' height='64' rx='16' fill='url(#g)'/><path d='M18 46V18h6l16 20V18h6v28h-6L24 26v20z' fill='#fff'/>"
+             "<circle cx='50' cy='14' r='5.5' fill='#10b981'/></svg>")
+
+
 def inject_css():
+    from urllib.parse import quote
     root = ":root{" + "".join(f"--{k}:{v};" for k, v in TOKENS.items()) + "}"
-    st.markdown(f"<style>{root}{CSS}</style>", unsafe_allow_html=True)
+    css = CSS.replace("__NEXUS__", "data:image/svg+xml," + quote(NEXUS_SVG, safe="/:=' "))
+    st.markdown(f"<style>{root}{css}</style>", unsafe_allow_html=True)
 
 
 inject_css()
@@ -332,6 +360,24 @@ with tab_add:
     rnd_a = st.session_state.setdefault("add_round", 0)
     pf = st.session_state.setdefault("add_pref", {})
     k = f"a{rnd_a}"
+    try:
+        hero = st.container(key="dictee")
+    except TypeError:
+        hero = st.container(border=True)
+    with hero:
+        st.markdown("<div class='dict-title'><i class='ph ph-microphone'></i>Raconte ta rencontre</div>", unsafe_allow_html=True)
+        audio = None
+        if GEMINI_KEY and hasattr(st, "audio_input"):
+            audio = st.audio_input("Dicter", key=f"{k}_mic", label_visibility="collapsed")
+        desc = st.text_area("Description libre", pf.get("_desc", ""), height=120, key=f"{k}_desc", label_visibility="collapsed",
+                            placeholder="… ou écris ici. Ex. : Philippe Bulgaris, rencontré à la soirée GUIC, en master à HEC Lausanne, "
+                                        "très calme, fait du trail, veut bosser en private markets. M'a conseillé de… On se revoit mi-novembre.")
+        prefill = st.button("Pré-remplir avec l'IA", key=f"{k}_aibtn", disabled=not GEMINI_KEY, use_container_width=True)
+        if not GEMINI_KEY:
+            st.caption("Ajoute GEMINI_API_KEY dans les Secrets pour activer la dictée et le pré-remplissage.")
+    filled = pf.get("_ai")
+    st.markdown("<div class='check-title'>Vérifie et complète" + ("<span>pré-rempli par l'IA</span>" if filled else "") + "</div>",
+                unsafe_allow_html=True)
     with st.container(border=True):
         c1, c2 = st.columns(2)
         prenom = c1.text_input("Prénom *", pf.get("prenom", ""), placeholder="Prénom", key=f"{k}_pre")
@@ -339,17 +385,6 @@ with tab_add:
         cat = choice("Catégorie", CAT_NAMES, key=f"{k}_cat", default=pf.get("categorie") or None)
         sj = study_job_fields(pf, k)
         sj["associations"] = assoc_field(pf, k)
-        st.markdown("<div class='hint' style='text-align:left;margin-top:6px'>Décris la rencontre (écris, ou appuie sur le micro pour dicter), "
-                    "puis « Pré-remplir avec l'IA » : les champs ci-dessous se remplissent. Tu vérifies, puis tu enregistres.</div>", unsafe_allow_html=True)
-        desc = st.text_area("Description libre", pf.get("_desc", ""), height=130, key=f"{k}_desc", label_visibility="collapsed",
-                            placeholder="Rencontré à la soirée GUIC : très calme, fait du trail, veut faire un master à HEC, "
-                                        "m'a conseillé de… On se revoit mi-novembre.")
-        audio = None
-        if GEMINI_KEY and hasattr(st, "audio_input"):
-            audio = st.audio_input("Dicter (appuie sur le micro, parle, puis appuie à nouveau pour arrêter)", key=f"{k}_mic")
-        prefill = st.button("Pré-remplir avec l'IA", key=f"{k}_aibtn", disabled=not GEMINI_KEY, use_container_width=True)
-        if not GEMINI_KEY:
-            st.caption("Ajoute GEMINI_API_KEY dans les Secrets pour activer la dictée et le pré-remplissage.")
         c1, c2 = st.columns([3, 2])
         ou = c1.text_input("Rencontré où", pf.get("rencontre_ou", ""), placeholder="Wick, soirée GUIC, cours…", key=f"{k}_ou")
         quand = c2.date_input("Quand", value=nc.parse_date(pf.get("date_rencontre")) or today, format="DD.MM.YYYY", key=f"{k}_quand")
@@ -384,12 +419,9 @@ with tab_add:
                 except Exception as ex:
                     st.error(f"Dictée impossible : {ex}")
             if heard:
-                merged = dict(current)
-                merged["_desc"] = (desc.strip() + " " + heard).strip()
-                st.session_state.add_pref = merged
-                st.session_state.add_round = rnd_a + 1
-                st.session_state.add_msg = "Dictée ajoutée à la description. Appuie sur « Pré-remplir avec l'IA » quand tu as fini."
-                st.rerun()
+                desc = (desc.strip() + " " + heard).strip()
+                current["_desc"] = desc
+                prefill = True                                   # dictée -> pré-remplissage directement
     if prefill:
         done_ai = False
         if not desc.strip():
@@ -398,6 +430,8 @@ with tab_add:
             with st.spinner("Analyse en cours…"):
                 try:
                     known = {f: v for f, v in current.items() if f in ("prenom", "nom", "categorie", "ecole", "employeur") and v}
+                    if st.session_state.get("add_pref", {}).get("_ai"):
+                        known = {}                               # nouvelle analyse : l'IA peut tout reproposer
                     res, _m = nc.gemini_json(nc.contact_prompt(desc, today.isoformat(), known), GEMINI_KEY, secret("gemini_model") or None)
                     ai = nc.clean_contact_fields(res)
                     merged = dict(current)
@@ -406,6 +440,7 @@ with tab_add:
                             merged[f] = v
                         elif not str(current.get(f) or "").strip():
                             merged[f] = v                        # l'IA remplit seulement les cases vides
+                    merged["_ai"] = True
                     st.session_state.add_pref = merged
                     st.session_state.add_round = rnd_a + 1
                     st.session_state.add_msg = f"{len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer."
