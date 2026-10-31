@@ -760,12 +760,50 @@ class Steps:
         print(f"Terminé en {time.time() - self.t0:.1f} s.", flush=True)
 
 
+VERIF_FIELDS = ["prenom", "nom", "categorie", "relation", "associations", "ecole", "niveau", "etudes", "employeur", "fonction",
+                "tache", "echeance", "dernier_contact", "rencontre_ou", "raconte", "projets", "conseil", "anecdote",
+                "hobbies", "points_communs", "utile_pour", "historique", "linkedin"]
+
+
+def compare(excel_rows: list, sheet_rows: list):
+    """Compare l'Excel (référence) et l'onglet Réseau du Google Sheet. Retourne (manquants, en trop, différences)."""
+    xs = {c["id"]: c for c in excel_rows if c.get("id")}
+    gs = {c["id"]: c for c in sheet_rows if c.get("id")}
+    missing = [xs[i] for i in xs if i not in gs]
+    extra = [gs[i] for i in gs if i not in xs]
+    diffs = []
+    for i, x in xs.items():
+        g = gs.get(i)
+        if not g:
+            continue
+        for f in VERIF_FIELDS:
+            a, b = str(x.get(f) or "").strip(), str(g.get(f) or "").strip()
+            if a != b:
+                diffs.append((x, f, a, b))
+    return missing, extra, diffs
+
+
+def print_compare(missing, extra, diffs, total):
+    if not (missing or extra or diffs):
+        print(f"Contrôle : l'app (onglet « {nc.MIRROR_TAB} ») est identique à l'Excel pour les {total} contacts.", flush=True)
+        return True
+    print(f"Contrôle : {len(missing)} contact(s) absent(s) de l'app, {len(extra)} en trop, {len(diffs)} case(s) différente(s).", flush=True)
+    for c in missing[:20]:
+        print(f"  absent de l'app : {c['prenom']} {c['nom']}")
+    for c in extra[:20]:
+        print(f"  dans l'app mais pas dans l'Excel : {c.get('prenom', '')} {c.get('nom', '')}")
+    for x, f, a, b in diffs[:40]:
+        print(f"  {x['prenom']} {x['nom']} · {nc.LABELS.get(f, f)} : Excel « {a[:50]} » / app « {b[:50]} »")
+    return False
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Synchronise l'Excel et l'app Network (l'Excel prévaut).")
     ap.add_argument("--xlsx", default=str(XLSX_DEFAULT))
     ap.add_argument("--csv", help="ajouter à l'Excel les contacts de ce CSV (colonnes de l'app), sans Google")
     ap.add_argument("--simulation", action="store_true", help="n'écrit rien, affiche ce qui serait fait")
     ap.add_argument("--envoyer-excel", action="store_true", help="(ancien) même chose que la synchro normale")
+    ap.add_argument("--verifier", action="store_true", help="compare l'Excel et l'app (Google Sheet) sans rien écrire")
     ap.add_argument("--sauvegarde", action="store_true", help="force une copie de secours du Google Sheet maintenant")
     ap.add_argument("--force", action="store_true", help="ignore le fichier de verrouillage d'Excel")
     a = ap.parse_args(argv)
@@ -773,10 +811,10 @@ def main(argv=None):
     if not xlsx.exists():
         raise SystemExit(f"Excel introuvable : {xlsx}")
     lock = xlsx.with_name("~$" + xlsx.name)
-    if lock.exists() and not a.force and not a.simulation:
+    if lock.exists() and not a.force and not a.simulation and not a.verifier:
         raise SystemExit("L'Excel est ouvert : ferme-le, puis relance (ou double-clique à nouveau sur Synchroniser_Network).")
 
-    steps = Steps(3 if a.csv else 7)
+    steps = Steps(3 if (a.csv or a.verifier) else 7)
     steps.go("Lecture de l'Excel")
     bk = Book(xlsx)
     log = []
@@ -808,6 +846,21 @@ def main(argv=None):
         steps.finish()
         print("\n".join(log))
         print(f"Excel mis à jour. Sauvegarde et Suivi.md : {arch}")
+        return 0
+
+    # ---- vérification seule
+    if a.verifier:
+        steps.go("Connexion au Google Sheet")
+        store = google_store()
+        steps.go("Comparaison Excel / app")
+        xl_rows = mirror_rows(bk, [], [])
+        sheet_rows = store.all()
+        steps.end(f"{len(xl_rows)} contacts dans l'Excel, {len(sheet_rows)} dans l'app")
+        m, x_, d = compare(xl_rows, sheet_rows)
+        print_compare(m, x_, d, len(xl_rows))
+        pend = [e for _, e in store.journal() if (e.get("statut") or "").strip() in ("", nc.A_SYNCHRONISER)]
+        if pend:
+            print(f"{len(pend)} saisie(s) de l'app pas encore reportée(s) dans l'Excel : lance la synchro.")
         return 0
 
     # ---- synchro avec le Google Sheet
@@ -859,6 +912,13 @@ def main(argv=None):
     steps.go("Mise à jour de l'app (journal et onglet Réseau)")
     store.mark(marks)
     store.replace_mirror(mirror)
+    steps.end()
+    steps.total += 1
+    steps.go("Contrôle : relecture de l'app et comparaison avec l'Excel")
+    after = store.all()
+    steps.end()
+    m, x_, d = compare(mirror_rows(bk, previous, journal), after)
+    print_compare(m, x_, d, len(mirror))
     steps.finish()
     print(f"App à jour : {len(mirror)} contacts (copie de l'Excel).")
     return 0
