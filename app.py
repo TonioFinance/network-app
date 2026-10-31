@@ -471,6 +471,7 @@ with tab_add:
                     known = {f: v for f, v in current.items() if f in ("prenom", "nom", "categorie", "ecole", "employeur") and v}
                     if st.session_state.get("add_pref", {}).get("_ai"):
                         known = {}                               # nouvelle analyse : l'IA peut tout reproposer
+                    _m = "audio direct"
                     if direct_a:
                         res = direct_a
                     else:
@@ -489,7 +490,7 @@ with tab_add:
                     _tdir = st.session_state.pop("t_direct", None)
                     st.session_state.add_msg = (f"{len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer. "
                                                 + (f"(écoute + analyse en un appel : {_tdir:.0f} s)" if _tdir else
-                                                   f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_t2.time() - _t1:.0f} s)"))
+                                                   f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_t2.time() - _t1:.0f} s · {_m})"))
                     done_ai = True
                 except Exception as ex:
                     st.error(f"Analyse impossible : {ex}. Ta description reste dans la case.")
@@ -619,7 +620,7 @@ with tab_news:
                         res, model = direct
                     else:
                         res, model = nc.gemini_json(nc.news_prompt(txt, contacts, today.isoformat(), ev_date.isoformat(), sel),
-                                                    GEMINI_KEY, secret("gemini_model") or None)
+                                                    GEMINI_KEY, secret("gemini_model") or None, timeout=35, deadline=40.0)
                     props = nc.clean_proposal(res, contacts)
                     if len(sel) == 1 and len(props) == 1 and not props[0]["contact_id"]:
                         props[0]["contact_id"] = sel[0]["id"]          # une seule personne choisie : c'est elle
@@ -632,7 +633,7 @@ with tab_news:
                     _tdir = st.session_state.pop("t_direct_n", None)
                     st.session_state.news_info = (f"{len(props)} personne(s) repérée(s) : vérifie ci-dessous. "
                                                   + (f"(écoute + analyse en un appel : {_tdir:.0f} s)" if _tdir else
-                                                     f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_tn2.time() - _t1:.0f} s)"))
+                                                     f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_tn2.time() - _t1:.0f} s · {model})"))
                     analysed = True
                 except Exception as ex:
                     st.error(f"Analyse impossible : {ex}. Ton texte reste dans la zone ci-dessus.")

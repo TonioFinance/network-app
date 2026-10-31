@@ -555,7 +555,7 @@ def kpi_html(items) -> str:
 APPEND_FIELDS = {"associations": ", ", "conseil": " · ", "anecdote": " · ", "raconte": " · ", "projets": " · ", "hobbies": ", ", "points_communs": ", ", "utile_pour": " · "}
 REPLACE_FIELDS = ["ecole", "niveau", "etudes", "employeur", "fonction", "categorie", "relation", "tache", "echeance"]
 NEWS_FIELDS = list(APPEND_FIELDS) + REPLACE_FIELDS
-GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"]   # analyse : bon et pas cher
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"]   # analyse : bon et pas cher
 GEMINI_FAST = ["gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]                        # dictée : le plus rapide
 
 
@@ -619,54 +619,104 @@ Note d'Antoine :
 \"\"\"{text}\"\"\""""
 
 
-def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=45, models=None, retries=1, think="minimal"):
-    """Appelle Gemini et renvoie (texte, modèle utilisé).
-    Modèle surchargé (503), quota (429) ou modèle introuvable : on réessaie une fois, puis on passe au modèle suivant."""
-    import time
+class _GemFatal(Exception):
+    pass
+
+
+def _gemini_once(m, parts, api_key, json_mode, timeout, think):
+    """Un appel à UN modèle. Renvoie le texte ou lève une erreur (courte)."""
     import requests
-    base = models or GEMINI_MODELS
-    models = ([model] if model else []) + [m for m in base if m != model]
     cfg = {"temperature": 0.2}
     if json_mode:
         cfg["responseMimeType"] = "application/json"
-    errors = []
-    for m in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
-        use_think = True                                   # « réflexion » minimale = bien plus rapide ; retirée si le modèle la refuse
-        for attempt in range(2 + retries):
-            c = dict(cfg)
-            if use_think:
-                c["thinkingConfig"] = ({"thinkingBudget": 0 if think == "minimal" else 1024} if "2.5" in m else {"thinkingLevel": think})
-            body = {"contents": [{"role": "user", "parts": parts}], "generationConfig": c}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+    for use_think in (True, False):
+        c = dict(cfg)
+        if use_think and think:
+            c["thinkingConfig"] = ({"thinkingBudget": 0 if think == "minimal" else 1024} if "2.5" in m else {"thinkingLevel": think})
+        body = {"contents": [{"role": "user", "parts": parts}], "generationConfig": c}
+        try:
+            r = requests.post(url, params={"key": api_key}, json=body, timeout=timeout)
+        except requests.RequestException as ex:
+            raise RuntimeError(type(ex).__name__)
+        if r.status_code == 200:
             try:
-                r = requests.post(url, params={"key": api_key}, json=body, timeout=timeout)
-            except requests.RequestException as ex:
-                errors.append(f"{m} : {type(ex).__name__}")
+                return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            except (KeyError, IndexError, ValueError):
+                raise RuntimeError("réponse vide")
+        if r.status_code == 400 and use_think and "think" in r.text.lower():
+            continue                                   # réglage refusé par ce modèle : on refait sans
+        if r.status_code in (401, 403):
+            raise _GemFatal(f"Clé Gemini refusée ({r.status_code}) : vérifie GEMINI_API_KEY et le crédit du projet.")
+        if r.status_code in (400, 404) and "not found" in r.text.lower():
+            raise RuntimeError("modèle introuvable")
+        raise RuntimeError({503: "surchargé", 429: "quota atteint"}.get(r.status_code, f"erreur {r.status_code} {r.text[:100]!r}"))
+    raise RuntimeError("réglage refusé")
+
+
+def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=20, models=None, retries=0, think="minimal",
+                    parallel=2, hedge=6.0, deadline=28.0):
+    """Appelle Gemini et renvoie (texte, modèle utilisé).
+    Course entre modèles : les `parallel` premiers partent en même temps, le suivant part après `hedge` secondes
+    (ou tout de suite si un modèle échoue). La première bonne réponse gagne. Limite totale : `deadline` secondes."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+    order = ([model] if model else []) + [m for m in (models or GEMINI_MODELS) if m != model]
+    start = time.time()
+    ex = ThreadPoolExecutor(max_workers=len(order))
+    pending, errors, idx = {}, [], 0
+
+    def launch():
+        nonlocal idx
+        f = ex.submit(_gemini_once, order[idx], parts, api_key, json_mode, timeout, think)
+        pending[f] = order[idx]
+        idx += 1
+
+    try:
+        while idx < min(parallel, len(order)):
+            launch()
+        next_at = start + hedge
+        while pending or idx < len(order):
+            now = time.time()
+            if now - start >= deadline:
+                errors.append(f"trop lent (> {deadline:.0f} s)")
                 break
-            if r.status_code == 200:
+            if not pending:
+                launch()
+                next_at = time.time() + hedge
+                continue
+            limit = start + deadline - now
+            if idx < len(order):
+                limit = min(limit, max(0.05, next_at - now))
+            done, _ = wait(list(pending), timeout=max(0.05, limit), return_when=FIRST_COMPLETED)
+            for f in done:
+                m = pending.pop(f)
                 try:
-                    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip(), m
-                except (KeyError, IndexError, ValueError):
-                    errors.append(f"{m} : réponse vide")
-                    break
-            if r.status_code == 400 and use_think and "think" in r.text.lower():
-                use_think = False                          # ce modèle n'accepte pas ce réglage : on refait sans
-                continue
-            if r.status_code in (429, 500, 502, 503, 504) and attempt < retries:
-                time.sleep(1)
-                continue
-            if r.status_code in (400, 404) and "not found" in r.text.lower():
-                errors.append(f"{m} : modèle introuvable")
-            elif r.status_code == 503:
-                errors.append(f"{m} : surchargé")
-            elif r.status_code == 429:
-                errors.append(f"{m} : quota atteint")
-            elif r.status_code in (401, 403):
-                raise RuntimeError(f"Clé Gemini refusée ({r.status_code}) : vérifie GEMINI_API_KEY et le crédit du projet.")
-            else:
-                errors.append(f"{m} : erreur {r.status_code} {r.text[:120]!r}")
-            break
+                    return f.result(), m
+                except _GemFatal as e:
+                    raise RuntimeError(str(e))
+                except Exception as e:
+                    errors.append(f"{m} : {e}")
+                    if idx < len(order):
+                        launch()                        # un échec : on lance tout de suite le suivant
+                        next_at = time.time() + hedge
+            if not done and idx < len(order) and time.time() >= next_at:
+                launch()
+                next_at = time.time() + hedge
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     raise RuntimeError("Gemini indisponible pour le moment (" + " ; ".join(errors) + "). Réessaie dans une minute.")
+
+
+def gemini_json(prompt, api_key, model=None, timeout=20, deadline=28.0):
+    """Texte -> objet JSON (course entre deux modèles, limite de temps stricte)."""
+    txt, m = gemini_generate([{"text": prompt}], api_key, model, json_mode=True, timeout=timeout, deadline=deadline)
+    if txt.startswith("```"):
+        txt = re.sub(r"^```(json)?|```$", "", txt).strip()
+    try:
+        return json.loads(txt), m
+    except ValueError:
+        raise RuntimeError(f"Réponse de Gemini illisible ({m}). Réessaie.")
 
 
 AUDIO_NOTE = "\n[Un enregistrement audio est joint : écoute-le, il fait partie de la note.]"
@@ -679,7 +729,7 @@ def gemini_audio_json(prompt, audio: bytes, mime: str, api_key, model=None, time
     import base64
     note = AUDIO_NOTE[:-1] + AUDIO_NOTE_TEXT + "]" if transcript else AUDIO_NOTE
     parts = [{"text": prompt + note}, {"inline_data": {"mime_type": mime or "audio/wav", "data": base64.b64encode(audio).decode()}}]
-    txt, m = gemini_generate(parts, api_key, model, json_mode=True, timeout=timeout, models=GEMINI_DIRECT, think="minimal")
+    txt, m = gemini_generate(parts, api_key, model, json_mode=True, timeout=timeout, models=GEMINI_DIRECT, think="minimal", deadline=35.0)
     if txt.startswith("```"):
         txt = re.sub(r"^```(json)?|```$", "", txt).strip()
     try:
@@ -691,15 +741,7 @@ def gemini_audio_json(prompt, audio: bytes, mime: str, api_key, model=None, time
     return obj, m
 
 
-def gemini_json(prompt, api_key, model=None, timeout=60):
-    """Texte -> objet JSON (avec repli sur d'autres modèles)."""
-    txt, m = gemini_generate([{"text": prompt}], api_key, model, json_mode=True, timeout=timeout)
-    if txt.startswith("```"):
-        txt = re.sub(r"^```(json)?|```$", "", txt).strip()
-    try:
-        return json.loads(txt), m
-    except ValueError:
-        raise RuntimeError(f"Réponse de Gemini illisible ({m}). Réessaie.")
+LAST = {}
 
 
 def transcribe(audio: bytes, mime: str, api_key, model=None) -> str:
@@ -708,7 +750,8 @@ def transcribe(audio: bytes, mime: str, api_key, model=None) -> str:
     parts = [{"text": "Transcris fidèlement ce message vocal, en français, avec la ponctuation. "
                       "Réponds uniquement avec le texte transcrit, sans commentaire."},
              {"inline_data": {"mime_type": mime or "audio/wav", "data": base64.b64encode(audio).decode()}}]
-    txt, _m = gemini_generate(parts, api_key, model, json_mode=False, timeout=30, models=GEMINI_FAST, retries=0)
+    txt, _m = gemini_generate(parts, api_key, model, json_mode=False, timeout=15, models=GEMINI_FAST, parallel=1, hedge=5.0, deadline=20.0)
+    LAST["dictee"] = _m
     return txt.strip().strip('"')
 
 
