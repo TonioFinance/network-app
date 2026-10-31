@@ -600,17 +600,16 @@ Règles :
 - La note peut être le récit oral d'une soirée entière qui parle de plusieurs personnes : une entrée par personne, sans mélanger leurs informations, chacune avec sa propre tâche si Antoine en mentionne une.
 - Reformule proprement en français, phrases courtes, style notes. N'invente rien, ne déduis rien qui n'est pas écrit.
 - Si plusieurs contacts peuvent correspondre, contact_id = null, ids possibles dans candidats, une phrase dans doute.
-- historique : UNE phrase courte résumant l'échange (sans la date). Ce n'est PAS un fourre-tout : ne recopie jamais dans l'historique ce qui est déjà rangé dans un autre champ.
+- historique : UNE phrase courte résumant l'échange (sans la date). Pas un fourre-tout : n'y recopie jamais ce qui est déjà rangé ailleurs.
 
-Méthode (important) : pour chaque personne, relis TOUT ce qui la concerne et range chaque information dans le champ le plus précis :
-- ce qu'elle a dit ou conseillé à Antoine -> conseil ; son caractère, son parcours, leur relation -> raconte ; ce qu'elle veut faire plus tard -> projets ;
-- sport, loisirs -> hobbies ; ce qu'ils ont en commun -> points_communs ; un détail marquant ou drôle -> anecdote ; son milieu, ses contacts, son expertise -> utile_pour ;
-- tout ce qu'Antoine doit ou veut faire (« je dois », « il faut que », envoyer mon CV, relancer, proposer un café, la rappeler…) -> tache, avec echeance si une date est dite ;
-- école, niveau, employeur, poste, association -> leurs champs.
-Une personne dont on parle pendant plusieurs phrases doit presque toujours avoir PLUSIEURS champs remplis, pas seulement l'historique.
-Noms : à l'oral, un nom est souvent mal entendu ou mal orthographié. S'il ressemble (même phonétiquement) à un contact de la liste, choisis ce contact au lieu d'en créer un nouveau ; sinon écris l'orthographe la plus probable.
-- evenement : devine le cadre de la rencontre en 2 à 6 mots si la note le laisse comprendre (ex. « Soirée alumni GUIC »,
-  « Coffee chat », « Session du GUIC ») ; sinon chaîne vide.
+À quoi servent ces notes (concentre-toi là-dessus, reste bref) :
+1. Ajouter la nouveauté au BON endroit du profil : ce qu'il a dit ou conseillé -> conseil ; ses projets -> projets ; son caractère ou parcours -> raconte ;
+   un détail marquant -> anecdote ; son milieu ou ses contacts -> utile_pour.
+2. Noter un point commun ou un centre d'intérêt partagé -> points_communs (et hobbies pour ses loisirs).
+3. Créer la TÂCHE à faire plus tard : tout ce qu'Antoine doit ou veut faire (« je dois », « il faut que », envoyer mon CV, relancer, café, appeler…) -> tache, avec echeance si une date est dite.
+Ne remplis école, niveau, employeur, fonction, associations, categorie, relation QUE si la note dit clairement que c'est nouveau ou changé.
+Plusieurs phrases sur une personne = plusieurs champs remplis (tâche et nouveauté), pas seulement l'historique.
+Noms : à l'oral, un nom est souvent mal entendu. S'il ressemble (même phonétiquement) à un contact de la liste, choisis ce contact au lieu d'en créer un nouveau.
 
 Réponds UNIQUEMENT en JSON, de la forme :
 {{"evenement": "", "personnes": [{{"contact_id": "id ou null", "candidats": [], "doute": "", "prenom": "", "nom": "",
@@ -680,7 +679,7 @@ def gemini_audio_json(prompt, audio: bytes, mime: str, api_key, model=None, time
     import base64
     note = AUDIO_NOTE[:-1] + AUDIO_NOTE_TEXT + "]" if transcript else AUDIO_NOTE
     parts = [{"text": prompt + note}, {"inline_data": {"mime_type": mime or "audio/wav", "data": base64.b64encode(audio).decode()}}]
-    txt, m = gemini_generate(parts, api_key, model, json_mode=True, timeout=timeout, models=GEMINI_DIRECT, think="low")
+    txt, m = gemini_generate(parts, api_key, model, json_mode=True, timeout=timeout, models=GEMINI_DIRECT, think="minimal")
     if txt.startswith("```"):
         txt = re.sub(r"^```(json)?|```$", "", txt).strip()
     try:
@@ -694,7 +693,7 @@ def gemini_audio_json(prompt, audio: bytes, mime: str, api_key, model=None, time
 
 def gemini_json(prompt, api_key, model=None, timeout=60):
     """Texte -> objet JSON (avec repli sur d'autres modèles)."""
-    txt, m = gemini_generate([{"text": prompt}], api_key, model, json_mode=True, timeout=timeout, think="low")
+    txt, m = gemini_generate([{"text": prompt}], api_key, model, json_mode=True, timeout=timeout)
     if txt.startswith("```"):
         txt = re.sub(r"^```(json)?|```$", "", txt).strip()
     try:
@@ -837,7 +836,6 @@ Champs (ne mets QUE ce que la description dit vraiment, chaîne vide sinon) :
 - tache : prochaine action d'Antoine envers lui ; echeance : date AAAA-MM-JJ (« mi-novembre » = le 15, « fin novembre » = le 30)
 
 Règles : français, phrases courtes style notes, reformule proprement, n'invente rien.
-Range chaque information dans le champ le plus précis (conseil, projets, hobbies, anecdote, tache…). Tout ce qu'Antoine doit ou veut faire (« je dois », « il faut que », envoyer, relancer, proposer un café…) va dans tache. Un nom entendu à l'oral peut être mal orthographié : écris l'orthographe la plus probable.
 Réponds UNIQUEMENT en JSON : {{"champs": {{"rencontre_ou": "", "raconte": "", "...": ""}}}}
 
 Description d'Antoine :

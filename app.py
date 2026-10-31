@@ -429,7 +429,7 @@ with tab_add:
             heard, err = None, None
             import time as _t
             _t0 = _t.time()
-            if secret("dictee_directe") != "non":                    # voie rapide : un seul appel, le modèle écoute et remplit
+            if secret("dictee_directe") == "oui":                    # voie rapide : un seul appel, le modèle écoute et remplit
                 with st.spinner("J'écoute et j'analyse ta dictée…"):
                     try:
                         known0 = {f: v for f, v in current.items() if f in ("prenom", "nom", "categorie", "ecole", "employeur") and v}
@@ -577,7 +577,7 @@ with tab_news:
         if nh != st.session_state.get("nmic_done") and (nh != st.session_state.get("nmic_fail") or go):
             heard, err = None, None
             _t0 = _tn.time()
-            if secret("dictee_directe") != "non":                    # voie rapide : un seul appel, le modèle écoute et range
+            if secret("dictee_directe") == "oui":                    # voie rapide : un seul appel, le modèle écoute et range
                 with st.spinner("J'écoute et j'analyse ta dictée…"):
                     try:
                         sel0 = [by_id[x] for x in picked if x in by_id]
