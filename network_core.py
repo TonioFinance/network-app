@@ -610,31 +610,67 @@ Note d'Antoine :
 \"\"\"{text}\"\"\""""
 
 
-def gemini_json(prompt, api_key, model=None, timeout=60):
-    """Appelle Gemini et renvoie (objet JSON, modèle utilisé). Essaie plusieurs modèles si l'un n'existe plus."""
+def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=90):
+    """Appelle Gemini et renvoie (texte, modèle utilisé).
+    Modèle surchargé (503), quota (429) ou modèle introuvable : on réessaie une fois, puis on passe au modèle suivant."""
+    import time
     import requests
-    models = [model] if model else GEMINI_MODELS
-    last = ""
+    models = ([model] if model else []) + [m for m in GEMINI_MODELS if m != model]
+    cfg = {"temperature": 0.2}
+    if json_mode:
+        cfg["responseMimeType"] = "application/json"
+    body = {"contents": [{"role": "user", "parts": parts}], "generationConfig": cfg}
+    errors = []
     for m in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
-        body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}}
-        r = requests.post(url, params={"key": api_key}, json=body, timeout=timeout)
-        if r.status_code in (404, 400) and "not found" in r.text.lower():
-            last = f"{m} : modèle introuvable"
-            continue
-        if r.status_code != 200:
-            raise RuntimeError(f"Gemini {m} : erreur {r.status_code} {r.text[:200]}")
-        data = r.json()
-        try:
-            txt = data["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError):
-            raise RuntimeError(f"Gemini {m} : réponse vide ({str(data)[:200]})")
-        txt = txt.strip()
-        if txt.startswith("```"):
-            txt = re.sub(r"^```(json)?|```$", "", txt).strip()
+        for attempt in range(2):
+            try:
+                r = requests.post(url, params={"key": api_key}, json=body, timeout=timeout)
+            except requests.RequestException as ex:
+                errors.append(f"{m} : {type(ex).__name__}")
+                break
+            if r.status_code == 200:
+                try:
+                    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip(), m
+                except (KeyError, IndexError, ValueError):
+                    errors.append(f"{m} : réponse vide")
+                    break
+            if r.status_code in (429, 500, 502, 503, 504) and attempt == 0:
+                time.sleep(2)
+                continue
+            if r.status_code in (400, 404) and "not found" in r.text.lower():
+                errors.append(f"{m} : modèle introuvable")
+            elif r.status_code == 503:
+                errors.append(f"{m} : surchargé")
+            elif r.status_code == 429:
+                errors.append(f"{m} : quota atteint")
+            elif r.status_code in (401, 403):
+                raise RuntimeError(f"Clé Gemini refusée ({r.status_code}) : vérifie GEMINI_API_KEY et le crédit du projet.")
+            else:
+                errors.append(f"{m} : erreur {r.status_code}")
+            break
+    raise RuntimeError("Gemini indisponible pour le moment (" + " ; ".join(errors) + "). Réessaie dans une minute.")
+
+
+def gemini_json(prompt, api_key, model=None, timeout=60):
+    """Texte -> objet JSON (avec repli sur d'autres modèles)."""
+    txt, m = gemini_generate([{"text": prompt}], api_key, model, json_mode=True, timeout=timeout)
+    if txt.startswith("```"):
+        txt = re.sub(r"^```(json)?|```$", "", txt).strip()
+    try:
         return json.loads(txt), m
-    raise RuntimeError("Aucun modèle Gemini disponible (" + last + "). Ajoute gemini_model dans les secrets.")
+    except ValueError:
+        raise RuntimeError(f"Réponse de Gemini illisible ({m}). Réessaie.")
+
+
+def transcribe(audio: bytes, mime: str, api_key, model=None) -> str:
+    """Dictée : message vocal -> texte français fidèle (ponctué), via Gemini."""
+    import base64
+    parts = [{"text": "Transcris fidèlement ce message vocal, en français, avec la ponctuation. "
+                      "Réponds uniquement avec le texte transcrit, sans commentaire."},
+             {"inline_data": {"mime_type": mime or "audio/wav", "data": base64.b64encode(audio).decode()}}]
+    txt, _m = gemini_generate(parts, api_key, model, json_mode=False)
+    return txt.strip().strip('"')
 
 
 def clean_proposal(res, contacts):

@@ -10,10 +10,8 @@ Sans [gcp_service_account], l'app tourne en local sur un fichier CSV (network_lo
 """
 from datetime import date, timedelta
 from pathlib import Path
-import tempfile
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 import network_core as nc
 
@@ -330,79 +328,6 @@ def choice(label, options, key, default=None):
 # =============================================================================
 GEMINI_KEY = secret("GEMINI_API_KEY") or secret("gemini_api_key")
 
-SLIDE_HTML = r"""
-<!DOCTYPE html><html><head><meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=Lato:wght@700;900&display=swap" rel="stylesheet">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  html,body{background:transparent;overflow:hidden;font-family:'Lato',sans-serif}
-  .wrap{padding:8px 2px 10px}
-  .track{position:relative;height:64px;border-radius:999px;overflow:hidden;
-    background:linear-gradient(90deg,rgba(30,58,138,.50) 0%,rgba(37,99,235,.50) 100%);
-    border:1px solid rgba(96,165,250,.45);animation:pulse 5s ease-in-out infinite;touch-action:none;user-select:none;-webkit-user-select:none}
-  .fill{position:absolute;left:0;top:0;bottom:0;width:62px;border-radius:999px;
-    background:linear-gradient(90deg,rgba(30,58,138,.95) 0%,rgba(59,130,246,.95) 100%);transition:width .45s cubic-bezier(.2,.8,.2,1)}
-  .label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding-left:64px;
-    font-weight:900;font-size:14px;letter-spacing:3px;pointer-events:none;
-    background:linear-gradient(90deg,rgba(255,255,255,.40) 0%,#fff 50%,rgba(255,255,255,.40) 100%);
-    background-size:200% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
-    animation:shine 4.5s linear infinite;transition:opacity .25s ease}
-  .thumb{position:absolute;left:5px;top:5px;width:52px;height:52px;border-radius:50%;
-    background:linear-gradient(135deg,#FFFFFF 0%,#DBEAFE 100%);display:grid;place-items:center;cursor:grab;outline:none;
-    box-shadow:0 4px 14px rgba(0,0,0,.35),0 0 16px rgba(147,197,253,.5);transition:transform .45s cubic-bezier(.2,.8,.2,1)}
-  .thumb svg{animation:nudge 2.2s ease-in-out infinite}
-  .track.active .thumb{cursor:grabbing}
-  .track.busy .label{animation:shine 1.2s linear infinite}
-  .track.done{animation:flash .7s ease-out}
-  @keyframes shine{0%{background-position:200% 0}100%{background-position:-200% 0}}
-  @keyframes pulse{0%,100%{box-shadow:0 6px 15px rgba(37,99,235,.20)}50%{box-shadow:0 0 26px rgba(96,165,250,.50)}}
-  @keyframes nudge{0%,100%{transform:translateX(-2px)}50%{transform:translateX(3px)}}
-  @keyframes flash{0%{filter:brightness(1.8)}100%{filter:brightness(1)}}
-  @media (prefers-reduced-motion:reduce){.track,.label,.thumb svg{animation:none!important}}
-</style></head><body>
-<div class="wrap"><div class="track" id="track">
-  <div class="fill" id="fill"></div>
-  <div class="label" id="label">✨ PRÉ-REMPLIR AVEC L'IA</div>
-  <div class="thumb" id="thumb" role="button" tabindex="0" aria-label="Glisser pour pré-remplir avec l'IA">
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/></svg>
-  </div>
-</div></div>
-<script>
-(function(){
-  function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data||{}),'*');}
-  send('streamlit:componentReady',{apiVersion:1});
-  send('streamlit:setFrameHeight',{height:84});
-  var track=document.getElementById('track'),thumb=document.getElementById('thumb'),fill=document.getElementById('fill'),label=document.getElementById('label');
-  var PAD=5,x=0,maxX=0,startX=0,startLeft=0,dragging=false,busy=false;
-  function measure(){maxX=Math.max(track.clientWidth-thumb.offsetWidth-PAD*2,0);}
-  function setX(v){x=Math.max(0,Math.min(maxX,v));thumb.style.transform='translateX('+x+'px)';
-    fill.style.width=(x+thumb.offsetWidth+PAD*2)+'px';label.style.opacity=Math.max(0,1-(maxX?x/maxX:0)*1.4);}
-  function complete(){if(busy)return;busy=true;measure();setX(maxX);track.classList.add('done');
-    send('streamlit:setComponentValue',{dataType:'json',value:{id:String(Date.now())+Math.random().toString(36).slice(2,7)}});
-    label.textContent='ANALYSE EN COURS…';
-    setTimeout(function(){track.classList.remove('done');setX(0);label.textContent='✨ PRÉ-REMPLIR AVEC L\'IA';busy=false;},2500);}
-  thumb.addEventListener('pointerdown',function(e){if(busy)return;measure();dragging=true;thumb.setPointerCapture(e.pointerId);
-    startX=e.clientX;startLeft=x;track.classList.add('active');thumb.style.transition='none';fill.style.transition='none';});
-  thumb.addEventListener('pointermove',function(e){if(dragging)setX(startLeft+e.clientX-startX);});
-  function release(){if(!dragging)return;dragging=false;track.classList.remove('active');thumb.style.transition='';fill.style.transition='';
-    if(x>=maxX*0.9&&maxX>0)complete();else setX(0);}
-  thumb.addEventListener('pointerup',release);thumb.addEventListener('pointercancel',release);
-  thumb.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '||e.key==='ArrowRight'){e.preventDefault();complete();}});
-  window.addEventListener('resize',function(){measure();setX(0);});
-  measure();setX(0);
-})();
-</script></body></html>
-"""
-
-
-@st.cache_resource
-def get_slide_component():
-    folder = Path(tempfile.gettempdir()) / "network_slide_ai"
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "index.html").write_text(SLIDE_HTML, encoding="utf-8")
-    return components.declare_component("slide_ai", path=str(folder))
-
-
 with tab_add:
     rnd_a = st.session_state.setdefault("add_round", 0)
     pf = st.session_state.setdefault("add_pref", {})
@@ -414,19 +339,17 @@ with tab_add:
         cat = choice("Catégorie", CAT_NAMES, key=f"{k}_cat", default=pf.get("categorie") or None)
         sj = study_job_fields(pf, k)
         sj["associations"] = assoc_field(pf, k)
-        st.markdown("<div class='hint' style='text-align:left;margin-top:6px'>✨ Décris la rencontre (ou dicte-la), puis glisse : l'IA "
-                    "pré-remplit les champs ci-dessous. Tu vérifies, puis tu enregistres.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='hint' style='text-align:left;margin-top:6px'>Décris la rencontre (écris, ou appuie sur le micro pour dicter), "
+                    "puis « Pré-remplir avec l'IA » : les champs ci-dessous se remplissent. Tu vérifies, puis tu enregistres.</div>", unsafe_allow_html=True)
         desc = st.text_area("Description libre", pf.get("_desc", ""), height=130, key=f"{k}_desc", label_visibility="collapsed",
                             placeholder="Rencontré à la soirée GUIC : très calme, fait du trail, veut faire un master à HEC, "
                                         "m'a conseillé de… On se revoit mi-novembre.")
-        slide = None
-        if GEMINI_KEY:
-            try:
-                slide = get_slide_component()(key=f"{k}_slide", default=None)
-            except Exception:
-                slide = {"id": "btn"} if st.button("✨ Pré-remplir avec l'IA", key=f"{k}_aibtn") else None
-        else:
-            st.caption("Ajoute GEMINI_API_KEY dans les Secrets pour activer le pré-remplissage.")
+        audio = None
+        if GEMINI_KEY and hasattr(st, "audio_input"):
+            audio = st.audio_input("Dicter (appuie sur le micro, parle, puis appuie à nouveau pour arrêter)", key=f"{k}_mic")
+        prefill = st.button("Pré-remplir avec l'IA", key=f"{k}_aibtn", disabled=not GEMINI_KEY, use_container_width=True)
+        if not GEMINI_KEY:
+            st.caption("Ajoute GEMINI_API_KEY dans les Secrets pour activer la dictée et le pré-remplissage.")
         c1, c2 = st.columns([3, 2])
         ou = c1.text_input("Rencontré où", pf.get("rencontre_ou", ""), placeholder="Wick, soirée GUIC, cours…", key=f"{k}_ou")
         quand = c2.date_input("Quand", value=nc.parse_date(pf.get("date_rencontre")) or today, format="DD.MM.YYYY", key=f"{k}_quand")
@@ -449,12 +372,28 @@ with tab_add:
     current = dict(prenom=prenom, nom=nom, categorie=cat or "", **sj, rencontre_ou=ou, date_rencontre=nc.iso(quand), raconte=raconte,
                    projets=projets, hobbies=hobbies, points_communs=communs, conseil=conseil, anecdote=anecdote, utile_pour=utile,
                    relation=relation or "", tache=tache, echeance=nc.iso(ech), telephone=tel, linkedin=li, _desc=desc)
-    new_slide = bool(slide) and slide.get("id") != st.session_state.get("slide_seen")
-    if new_slide:
-        st.session_state.slide_seen = slide.get("id")
+    if audio is not None:
+        import hashlib
+        h = hashlib.md5(audio.getvalue()).hexdigest()
+        if h != st.session_state.get("mic_seen"):
+            st.session_state.mic_seen = h
+            heard = None
+            with st.spinner("Transcription de ta dictée…"):
+                try:
+                    heard = nc.transcribe(audio.getvalue(), getattr(audio, "type", "audio/wav"), GEMINI_KEY, secret("gemini_model") or None)
+                except Exception as ex:
+                    st.error(f"Dictée impossible : {ex}")
+            if heard:
+                merged = dict(current)
+                merged["_desc"] = (desc.strip() + " " + heard).strip()
+                st.session_state.add_pref = merged
+                st.session_state.add_round = rnd_a + 1
+                st.session_state.add_msg = "Dictée ajoutée à la description. Appuie sur « Pré-remplir avec l'IA » quand tu as fini."
+                st.rerun()
+    if prefill:
         done_ai = False
         if not desc.strip():
-            st.warning("Écris d'abord quelques phrases dans la description, puis glisse à nouveau.")
+            st.warning("Écris ou dicte d'abord quelques phrases dans la description.")
         else:
             with st.spinner("Analyse en cours…"):
                 try:
@@ -469,7 +408,7 @@ with tab_add:
                             merged[f] = v                        # l'IA remplit seulement les cases vides
                     st.session_state.add_pref = merged
                     st.session_state.add_round = rnd_a + 1
-                    st.session_state.add_msg = f"✨ {len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer."
+                    st.session_state.add_msg = f"{len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer."
                     done_ai = True
                 except Exception as ex:
                     st.error(f"Analyse impossible : {ex}. Ta description reste dans la case.")
