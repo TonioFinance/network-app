@@ -52,7 +52,7 @@ CATEGORIES = [
 ]
 CAT_ICON = dict(CATEGORIES)
 RELATIONS = ["Network", "Ami", "À contacter"]
-NIVEAUX = ["B1", "B2", "B3", "M1", "M2", "Doctorat"]
+NIVEAUX = ["B1", "B2", "B3", "Bachelor obtenu", "M1", "M2", "Doctorat"]
 ETUDES = ["En cours", "Terminées"]
 CHALEURS = ["Chaud", "Tiède", "Froid"]
 CHALEUR_CLS = {"Chaud": "hot", "Tiède": "warm", "Froid": "cold"}
@@ -561,7 +561,7 @@ Champs possibles par personne (ne mets QUE ceux que la note renseigne vraiment) 
 - points_communs : ce qu'ils ont en commun
 - utile_pour : la valeur ajoutée de cette personne dans le réseau d'Antoine (son expertise, son milieu, les portes qu'elle connaît)
 - ecole : école ou faculté (GSEM, HEC Lausanne, LSE…), seulement si nouveau ou changé
-- niveau : une de B1, B2, B3 (bachelor 1re à 3e année), M1, M2 (master), Doctorat — seulement si dit
+- niveau : une de B1, B2, B3 (bachelor 1re à 3e année), « Bachelor obtenu » (bachelor fini, pas encore de master), M1, M2 (master), Doctorat — seulement si dit
 - etudes : « En cours » ou « Terminées » — seulement si dit
 - employeur : entreprise où il travaille (y compris stage ou temps partiel), seulement si nouveau ou changé
 - fonction : son poste chez cet employeur (Analyst, stage, temps partiel…), seulement si nouveau ou changé
