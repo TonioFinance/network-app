@@ -613,19 +613,28 @@ with tab_ev:
         todo_c, rest_c, n_late = nc.event_view(contacts, ev_assocs, today)
         st.markdown(nc.kpi_html([("Personnes", len(todo_c) + len(rest_c), "var(--blue-300)"),
                                  ("Tâches", len(todo_c), "var(--amber)"), ("En retard", n_late, "var(--red)")]), unsafe_allow_html=True)
+
+        def ev_row(c, show_task):
+            head = " · ".join(x for x in (f"{c['prenom']} {c['nom'].upper()}".strip(), c.get("categorie"), c.get("relation")) if x)
+            if show_task:
+                ech = nc.parse_date(c.get("echeance"))
+                flag = "🔴 " if ech and ech < today else ""
+                tail = flag + (c.get("tache") or "À faire") + (f" ({nc.fr_date(ech)})" if ech else "")
+            else:
+                lt = nc.last_touch(c)
+                tail = f"vu le {nc.fr_date(lt)}" if lt else "jamais revu"
+            with st.expander(f"{head} — {tail}"):
+                st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
+
         st.markdown(f"<div class='section-title'>À faire avec eux <span class='count'>{len(todo_c)}</span></div>", unsafe_allow_html=True)
         if not todo_c:
             st.markdown("<div class='hint'>Aucune tâche en cours avec ces personnes.</div>", unsafe_allow_html=True)
         for c in todo_c:
-            st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
+            ev_row(c, True)
         st.markdown(f"<div class='section-title'>Les autres, du moins revu au plus récent <span class='count'>{len(rest_c)}</span></div>",
                     unsafe_allow_html=True)
         for c in rest_c:
-            lt = nc.last_touch(c)
-            sub = " · ".join(x for x in (nc.study_line(c) or nc.job_line(c), f"vu le {nc.fr_date(lt)}" if lt else "jamais revu") if x)
-            with st.expander(f"{c['prenom']} {c['nom'].upper()} — {sub}"):
-                st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
-
+            ev_row(c, False)
 
 with tab_rel:
     relance_block("En retard", late, "late")
