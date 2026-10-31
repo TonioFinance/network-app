@@ -410,18 +410,23 @@ with tab_add:
     if audio is not None:
         import hashlib
         h = hashlib.md5(audio.getvalue()).hexdigest()
-        if h != st.session_state.get("mic_seen"):
-            st.session_state.mic_seen = h
-            heard = None
+        # « fait » seulement après une transcription réussie ; après un échec, on ne réessaie qu'au clic sur le bouton
+        if h != st.session_state.get("mic_done") and (h != st.session_state.get("mic_fail") or prefill):
+            heard, err = None, None
             with st.spinner("Transcription de ta dictée…"):
                 try:
-                    heard = nc.transcribe(audio.getvalue(), getattr(audio, "type", "audio/wav"), GEMINI_KEY, secret("gemini_model") or None)
+                    heard = nc.transcribe(audio.getvalue(), getattr(audio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model") or None)
                 except Exception as ex:
-                    st.error(f"Dictée impossible : {ex}")
+                    err = f"{type(ex).__name__} : {ex}"
             if heard:
+                st.session_state.mic_done = h
                 desc = (desc.strip() + " " + heard).strip()
                 current["_desc"] = desc
                 prefill = True                                   # dictée -> pré-remplissage directement
+            else:
+                st.session_state.mic_fail = h
+                st.error("Dictée non transcrite : " + (err or "aucun texte entendu (parle plus longtemps ou plus près du micro)")
+                         + ". Appuie sur « Pré-remplir avec l'IA » pour réessayer.")
     if prefill:
         done_ai = False
         if not desc.strip():
