@@ -326,50 +326,96 @@ def choice(label, options, key, default=None):
 # =============================================================================
 # 5. AJOUTER
 # =============================================================================
+GEMINI_KEY = secret("GEMINI_API_KEY") or secret("gemini_api_key")
+
 with tab_add:
-    with st.form("add", clear_on_submit=True, border=True):
+    rnd_a = st.session_state.setdefault("add_round", 0)
+    pf = st.session_state.setdefault("add_pref", {})
+    k = f"a{rnd_a}"
+    with st.form(f"add_{rnd_a}", border=True):
         c1, c2 = st.columns(2)
-        prenom = c1.text_input("Prénom *", placeholder="Prénom")
-        nom = c2.text_input("Nom *", placeholder="Nom")
-        cat = choice("Catégorie", CAT_NAMES, key="add_cat")
-        sj = study_job_fields(None, "add")
-        sj["associations"] = assoc_field(None, "add")
+        prenom = c1.text_input("Prénom *", pf.get("prenom", ""), placeholder="Prénom", key=f"{k}_pre")
+        nom = c2.text_input("Nom *", pf.get("nom", ""), placeholder="Nom", key=f"{k}_nom")
+        cat = choice("Catégorie", CAT_NAMES, key=f"{k}_cat", default=pf.get("categorie") or None)
+        sj = study_job_fields(pf, k)
+        sj["associations"] = assoc_field(pf, k)
+        st.markdown("<div class='hint' style='text-align:left;margin-top:6px'>✨ Décris la rencontre (ou dicte-la) : l'IA pré-remplit "
+                    "les champs ci-dessous. Tu vérifies, puis tu enregistres.</div>", unsafe_allow_html=True)
+        desc = st.text_area("Description libre", pf.get("_desc", ""), height=130, key=f"{k}_desc", label_visibility="collapsed",
+                            placeholder="Rencontré à la soirée GUIC : très calme, fait du trail, veut faire un master à HEC, "
+                                        "m'a conseillé de… On se revoit mi-novembre.")
+        prefill = st.form_submit_button("✨ Pré-remplir avec l'IA", disabled=not GEMINI_KEY)
         c1, c2 = st.columns([3, 2])
-        ou = c1.text_input("Rencontré où", placeholder="Wick, soirée GUIC, cours…")
-        quand = c2.date_input("Quand", value=today, format="DD.MM.YYYY")
-        raconte = st.text_area("Personnalité, relation", placeholder="Comment il fonctionne, son caractère, comment vous vous entendez, son parcours…", height=90)
-        projets = st.text_area("Projets d'avenir", placeholder="Master visé, poste rêvé, création de boîte, départ à l'étranger…", height=80)
+        ou = c1.text_input("Rencontré où", pf.get("rencontre_ou", ""), placeholder="Wick, soirée GUIC, cours…", key=f"{k}_ou")
+        quand = c2.date_input("Quand", value=nc.parse_date(pf.get("date_rencontre")) or today, format="DD.MM.YYYY", key=f"{k}_quand")
+        raconte = st.text_area("Personnalité, relation", pf.get("raconte", ""), placeholder="Comment il fonctionne, son caractère, comment vous vous entendez, son parcours…", height=90, key=f"{k}_rac")
+        projets = st.text_area("Projets d'avenir", pf.get("projets", ""), placeholder="Master visé, poste rêvé, création de boîte, départ à l'étranger…", height=80, key=f"{k}_proj")
         c1, c2 = st.columns(2)
-        hobbies = c1.text_input("Hobbies, sport", placeholder="Trail, ski, échecs…")
-        communs = c2.text_input("Points communs", placeholder="Même école, même club…")
-        conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", placeholder="Un conseil sur le métier, la carrière, la vie… ou une phrase à retenir", height=80)
-        anecdote = st.text_area("Anecdote / phrase marquante", placeholder="La phrase drôle, le détail niche qu'il t'a raconté…", height=80)
-        utile = st.text_input("Valeur ajoutée dans mon réseau", placeholder="Regard d'expert sur le PE, porte d'entrée chez Pictet, bon conseil carrière…")
-        relation = choice("Relation", nc.RELATIONS, key="add_rel", default="Network")
-        with st.expander("Suivi et coordonnées"):
-            tache = st.text_input("Tâche à faire", placeholder="Lui écrire sur LinkedIn, envoyer le CV…")
+        hobbies = c1.text_input("Hobbies, sport", pf.get("hobbies", ""), placeholder="Trail, ski, échecs…", key=f"{k}_hob")
+        communs = c2.text_input("Points communs", pf.get("points_communs", ""), placeholder="Même école, même club…", key=f"{k}_com")
+        conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", pf.get("conseil", ""), placeholder="Un conseil sur le métier, la carrière, la vie… ou une phrase à retenir", height=80, key=f"{k}_cons")
+        anecdote = st.text_area("Anecdote / phrase marquante", pf.get("anecdote", ""), placeholder="La phrase drôle, le détail niche qu'il t'a raconté…", height=80, key=f"{k}_anec")
+        utile = st.text_input("Valeur ajoutée dans mon réseau", pf.get("utile_pour", ""), placeholder="Regard d'expert sur le PE, porte d'entrée chez Pictet, bon conseil carrière…", key=f"{k}_util")
+        relation = choice("Relation", nc.RELATIONS, key=f"{k}_rel", default=pf.get("relation") or "Network")
+        with st.expander("Suivi et coordonnées", expanded=bool(pf.get("tache"))):
+            tache = st.text_input("Tâche à faire", pf.get("tache", ""), placeholder="Lui écrire sur LinkedIn, envoyer le CV…", key=f"{k}_tache")
             c1, c2 = st.columns(2)
-            ech = c1.date_input("Échéance", value=None, format="DD.MM.YYYY")
-            tel = c2.text_input("Numéro", placeholder="+41 …")
-            li = st.text_input("Lien LinkedIn", placeholder="https://www.linkedin.com/in/…")
-        ok = st.form_submit_button("Enregistrer")
+            ech = c1.date_input("Échéance", value=nc.parse_date(pf.get("echeance")), format="DD.MM.YYYY", key=f"{k}_ech")
+            tel = c2.text_input("Numéro", pf.get("telephone", ""), placeholder="+41 …", key=f"{k}_tel")
+            li = st.text_input("Lien LinkedIn", pf.get("linkedin", ""), placeholder="https://www.linkedin.com/in/…", key=f"{k}_li")
+        ok = st.form_submit_button("Enregistrer", type="primary")
+    current = dict(prenom=prenom, nom=nom, categorie=cat or "", **sj, rencontre_ou=ou, date_rencontre=nc.iso(quand), raconte=raconte,
+                   projets=projets, hobbies=hobbies, points_communs=communs, conseil=conseil, anecdote=anecdote, utile_pour=utile,
+                   relation=relation or "", tache=tache, echeance=nc.iso(ech), telephone=tel, linkedin=li, _desc=desc)
+    if prefill:
+        if not desc.strip():
+            st.warning("Écris d'abord quelques phrases dans la description.")
+        else:
+            with st.spinner("Analyse en cours…"):
+                try:
+                    known = {f: v for f, v in current.items() if f in ("prenom", "nom", "categorie", "ecole", "employeur") and v}
+                    res, _m = nc.gemini_json(nc.contact_prompt(desc, today.isoformat(), known), GEMINI_KEY, secret("gemini_model") or None)
+                    ai = nc.clean_contact_fields(res)
+                    merged = dict(current)
+                    for f, v in ai.items():
+                        if f == "relation" and current.get("relation") in ("", "Network"):
+                            merged[f] = v
+                        elif not str(current.get(f) or "").strip():
+                            merged[f] = v                        # l'IA remplit seulement les cases vides
+                    st.session_state.add_pref = merged
+                    st.session_state.add_round = rnd_a + 1
+                    st.session_state.add_msg = f"✨ {len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer."
+                    done_ai = True
+                except Exception as ex:
+                    done_ai = False
+                    st.error(f"Analyse impossible : {ex}. Ta description reste dans la case.")
+            if done_ai:
+                st.rerun()
+    msg = st.session_state.pop("add_msg", None)
+    if msg:
+        st.info(msg)
     if ok:
         if not prenom.strip() or not nom.strip():
             st.error("Il faut au moins le prénom et le nom.")
         else:
             dup = nc.duplicates(contacts, prenom, nom)
-            c = nc.new_contact(prenom=prenom, nom=nom, categorie=cat or "", **sj, rencontre_ou=ou,
-                               date_rencontre=quand, anecdote=anecdote, conseil=conseil, raconte=raconte, projets=projets, hobbies=hobbies, points_communs=communs,
-                               utile_pour=utile, relation=relation or "", tache=tache, echeance=ech, dernier_contact=quand,
-                               telephone=tel, linkedin=li)
+            fields = {f: v for f, v in current.items() if not f.startswith("_")}
+            fields["dernier_contact"] = fields["date_rencontre"]
+            c = nc.new_contact(**fields)
             try:
                 store.add(c)
                 refresh()
+                st.session_state.add_pref = {}
+                st.session_state.add_round = rnd_a + 1
                 st.toast(f"{c['prenom']} {c['nom'].upper()} ajouté(e)", icon="✅")
                 if dup:
-                    st.warning(f"Il y avait déjà un(e) {c['prenom']} {c['nom'].upper()} dans ton réseau : vérifie le doublon dans l'onglet Réseau.")
+                    st.session_state.add_msg = f"Il y avait déjà un(e) {c['prenom']} {c['nom'].upper()} dans ton réseau : vérifie le doublon dans l'onglet Réseau."
+                saved = True
             except Exception as ex:
+                saved = False
                 st.error(f"Échec de l'enregistrement : {ex}")
+            if saved:
+                st.rerun()
 
 
 # =============================================================================
@@ -539,20 +585,26 @@ def photo_box(c):
     up = st.file_uploader("Photo (capture de son profil LinkedIn, ou photo)", type=["jpg", "jpeg", "png", "webp"], key=f"ph_{cid}")
     b1, b2 = st.columns(2)
     if up is not None and b1.button("Enregistrer la photo", key=f"phs_{cid}", type="primary"):
+        ok_ph = False
         try:
             store.set_photo(cid, nc.make_thumb(up.getvalue()))
             refresh()
             st.toast("Photo enregistrée", icon="✅")
-            st.rerun()
+            ok_ph = True
         except Exception as ex:
             st.error(f"Photo impossible à enregistrer : {ex}")
+        if ok_ph:
+            st.rerun()
     if photos.get(cid) and b2.button("Retirer la photo", key=f"phd_{cid}"):
+        ok_ph = False
         try:
             store.set_photo(cid, "")
             refresh()
-            st.rerun()
+            ok_ph = True
         except Exception as ex:
             st.error(f"Échec : {ex}")
+        if ok_ph:
+            st.rerun()
 
 
 with tab_net:

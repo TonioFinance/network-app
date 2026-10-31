@@ -729,3 +729,56 @@ def event_view(contacts, assocs, today: date | None = None):
     others.sort(key=lambda c: (last_touch(c) or date.min, norm(c.get("prenom", ""))))      # les moins revus d'abord
     late = sum(1 for c in with_task if (parse_date(c.get("echeance")) or date.max) < today)
     return with_task, others, late
+
+
+# --------------------------------------------------------------------------- « Ajouter » : description libre -> champs pré-remplis
+CONTACT_AI_FIELDS = ["rencontre_ou", "raconte", "projets", "hobbies", "points_communs", "conseil", "anecdote", "utile_pour",
+                     "relation", "categorie", "ecole", "niveau", "etudes", "employeur", "fonction", "associations", "tache", "echeance"]
+
+
+def contact_prompt(text, today, known: dict):
+    cats = ", ".join(n for n, _ in CATEGORIES)
+    have = "; ".join(f"{LABELS.get(k, k)} = {v}" for k, v in known.items() if v) or "rien"
+    return f"""Tu aides Antoine (étudiant en finance à Genève, membre du GUIC) à noter une nouvelle rencontre de networking.
+Il décrit la personne librement (souvent dicté). Remplis les champs ci-dessous à partir de sa description.
+Date du jour : {today}. Déjà saisi par Antoine (ne le contredis pas) : {have}.
+
+Champs (ne mets QUE ce que la description dit vraiment, chaîne vide sinon) :
+- rencontre_ou : où ou dans quel cadre ils se sont rencontrés (« Soirée GUIC », « Coffee chat », « Uniparty »…)
+- raconte : sa personnalité, sa façon de fonctionner, comment Antoine s'entend avec lui, son parcours
+- projets : ses projets d'avenir (études visées, poste rêvé, création d'entreprise, départ à l'étranger…)
+- hobbies : sports et loisirs
+- points_communs : ce qu'ils ont en commun
+- conseil : conseil ou citation qu'il a donné à Antoine
+- anecdote : détail marquant, moment drôle
+- utile_pour : sa valeur ajoutée dans le réseau d'Antoine (expertise, milieu, portes qu'il connaît)
+- relation : Network, Ami ou À contacter (seulement si c'est clair)
+- categorie : une de : {cats}
+- ecole : école ou faculté ; niveau : B1, B2, B3, Bachelor obtenu, M1, M2 ou Doctorat ; etudes : En cours ou Terminées
+- employeur : entreprise où il travaille (y compris stage) ; fonction : son poste
+- associations : GUIC, Alumni GUIC, Comité GSEM, IFSA ou autre association citée (séparées par des virgules)
+- tache : prochaine action d'Antoine envers lui ; echeance : date AAAA-MM-JJ (« mi-novembre » = le 15, « fin novembre » = le 30)
+
+Règles : français, phrases courtes style notes, reformule proprement, n'invente rien.
+Réponds UNIQUEMENT en JSON : {{"champs": {{"rencontre_ou": "", "raconte": "", "...": ""}}}}
+
+Description d'Antoine :
+\"\"\"{text}\"\"\""""
+
+
+def clean_contact_fields(res) -> dict:
+    out = {}
+    for k, v in ((res or {}).get("champs") or {}).items():
+        if k not in CONTACT_AI_FIELDS or v in (None, ""):
+            continue
+        v = str(v).strip()
+        if k == "echeance":
+            d = parse_date(v)
+            if not d:
+                continue
+            v = d.isoformat()
+        if (k == "relation" and v not in RELATIONS) or (k == "categorie" and v not in CAT_ICON) \
+                or (k == "niveau" and v not in NIVEAUX) or (k == "etudes" and v not in ETUDES):
+            continue
+        out[k] = v
+    return out
