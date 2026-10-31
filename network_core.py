@@ -141,12 +141,26 @@ class CsvStore:
     def delete(self, cid: str):
         self._write([r for r in self.all() if r["id"] != cid])
 
+    # photos (mode local : fichier JSON à côté du CSV)
+    def photos(self) -> dict:
+        p = self.path.with_suffix(".photos.json")
+        return json.loads(p.read_text(encoding="utf8")) if p.exists() else {}
+
+    def set_photo(self, cid: str, b64: str):
+        ph = self.photos()
+        if b64:
+            ph[cid] = b64
+        else:
+            ph.pop(cid, None)
+        self.path.with_suffix(".photos.json").write_text(json.dumps(ph), encoding="utf8")
+
 
 MIRROR_TAB = "Réseau"          # copie de l'Excel (réécrite à chaque synchro) : c'est ce que l'app affiche
 JOURNAL_TAB = "Saisies"        # tout ce que tu as saisi dans l'app (ajouts et modifications), jamais réécrit
 OLD_TAB = "Contacts"           # ancien onglet unique (avant la synchro avec l'Excel)
 JOURNAL_HEAD = ["horodatage", "action", "statut", "changements"] + COLUMNS
 A_SYNCHRONISER = "à synchroniser"
+PHOTO_TAB = "Photos"           # petites photos des contacts (base64), propres à l'app
 
 
 def _a1(row: int, col: int) -> str:
@@ -265,6 +279,31 @@ class SheetStore:
         after = dict(zip(self.head, cur))
         self._journal("modification", after, json.dumps(diff, ensure_ascii=False))
 
+    # ---- photos (onglet « Photos » : id | photo en base64 ; jamais dans l'Excel)
+    def _photo_ws(self, create=False):
+        try:
+            return self.sh.worksheet(PHOTO_TAB)
+        except Exception:
+            if not create:
+                return None
+            ws = self.sh.add_worksheet(title=PHOTO_TAB, rows=200, cols=2)
+            ws.update(range_name="A1", values=[["id", "photo"]])
+            return ws
+
+    def photos(self) -> dict:
+        ws = self._photo_ws()
+        if ws is None:
+            return {}
+        return {r[0]: r[1] for r in ws.get_all_values()[1:] if len(r) > 1 and r[0] and r[1]}
+
+    def set_photo(self, cid: str, b64: str):
+        ws = self._photo_ws(create=True)
+        ids = ws.col_values(1)
+        if cid in ids:
+            ws.update(range_name=f"A{ids.index(cid) + 1}", values=[[cid, b64]], value_input_option="RAW")
+        else:
+            ws.append_row([cid, b64], value_input_option="RAW")
+
     # ---- utilisé par la synchro
     def journal(self) -> list:
         """[(numéro de ligne, saisie)] dans l'ordre chronologique."""
@@ -380,7 +419,7 @@ def initials(c) -> str:
     return ((c.get("prenom") or "?")[:1] + (c.get("nom") or "")[:1]).upper()
 
 
-def contact_card_html(c, today: date | None = None, extra="") -> str:
+def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -> str:
     today = today or date.today()
     icon = CAT_ICON.get(c.get("categorie"), "ph-user")
     sub = " · ".join(x for x in (c.get("institution"), c.get("poste")) if x)
@@ -417,7 +456,8 @@ def contact_card_html(c, today: date | None = None, extra="") -> str:
     return "".join([
         "<div class='card nc'>",
         "<div class='nc-head'>",
-        f"<div class='nc-avatar'>{e(initials(c))}</div>",
+        (f"<div class='nc-avatar nc-photo'><img src='data:image/jpeg;base64,{photo}' alt=''></div>" if photo
+         else f"<div class='nc-avatar'>{e(initials(c))}</div>"),
         "<div class='nc-id'>",
         f"<div class='nc-name'>{e(c.get('prenom'))} <b>{e((c.get('nom') or '').upper())}</b></div>",
         f"<div class='nc-sub'>{e(sub)}</div>" if sub else "",
@@ -573,3 +613,23 @@ def hist_line(event_date, event_name, text):
     d = parse_date(event_date).strftime("%d.%m.%Y") if parse_date(event_date) else ""
     head = " · ".join(x for x in (d, (event_name or "").strip()) if x)
     return f"{head} : {text.strip()}" if head and text.strip() else (text.strip() or "")
+
+
+# --------------------------------------------------------------------------- photos
+def make_thumb(data: bytes, size: int = 160) -> str:
+    """Photo -> carré recadré au centre, JPEG léger, en base64 (≈ 6–12 ko, tient dans une cellule Google Sheet)."""
+    import base64
+    import io
+    from PIL import Image, ImageOps
+    im = Image.open(io.BytesIO(data))
+    im = ImageOps.exif_transpose(im).convert("RGB")
+    w, h = im.size
+    s = min(w, h)
+    im = im.crop(((w - s) // 2, max(0, (h - s) // 3), (w - s) // 2 + s, max(0, (h - s) // 3) + s)).resize((size, size), Image.LANCZOS)
+    for q in (82, 70, 55):
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=q, optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        if len(b64) < 40000:
+            return b64
+    return b64

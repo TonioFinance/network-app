@@ -103,6 +103,8 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
 .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; margin-bottom: 12px; }
 .nc { padding: 16px 18px; }
 .nc-head { display: flex; align-items: center; gap: 14px; }
+.nc-photo { padding: 0; overflow: hidden; }
+.nc-photo img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
 .nc-avatar { width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; font-weight: 900; font-size: 16px; color: var(--blue-300);
   background: radial-gradient(circle at 30% 30%, rgba(59,130,246,0.35), rgba(15,23,42,0.9)); border: 2px solid rgba(96,165,250,0.4); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
 .nc-id { flex: 1; min-width: 0; }
@@ -196,6 +198,14 @@ def load(ver):
     return store.all()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_photos(ver):
+    try:
+        return store.photos()
+    except Exception:
+        return {}
+
+
 def refresh():
     st.session_state.ver += 1
 
@@ -210,6 +220,7 @@ def save_update(cid, changes, msg="Enregistré"):
 
 
 contacts = load(st.session_state.ver)
+photos = load_photos(st.session_state.ver) if hasattr(store, "photos") else {}
 today = date.today()
 late, week, silent = nc.relances(contacts, today)
 
@@ -448,6 +459,28 @@ def edit_form(c, key):
             st.rerun()
 
 
+def photo_box(c):
+    """Photo du contact : capture de son profil LinkedIn ou photo de ta galerie. Reste dans l'app (pas dans l'Excel)."""
+    cid = c["id"]
+    up = st.file_uploader("Photo (capture de son profil LinkedIn, ou photo)", type=["jpg", "jpeg", "png", "webp"], key=f"ph_{cid}")
+    b1, b2 = st.columns(2)
+    if up is not None and b1.button("Enregistrer la photo", key=f"phs_{cid}", type="primary"):
+        try:
+            store.set_photo(cid, nc.make_thumb(up.getvalue()))
+            refresh()
+            st.toast("Photo enregistrée", icon="✅")
+            st.rerun()
+        except Exception as ex:
+            st.error(f"Photo impossible à enregistrer : {ex}")
+    if photos.get(cid) and b2.button("Retirer la photo", key=f"phd_{cid}"):
+        try:
+            store.set_photo(cid, "")
+            refresh()
+            st.rerun()
+        except Exception as ex:
+            st.error(f"Échec : {ex}")
+
+
 with tab_net:
     q = st.text_input("Rechercher", placeholder="Nom, banque, anecdote, hobby…", key="q")
     inst_opts = nc.institutions(contacts)
@@ -468,9 +501,10 @@ with tab_net:
     for c in found[:lim]:
         label = f"{c['prenom']} {c['nom'].upper()}" + (f" · {c['institution']}" if c["institution"] else "")
         with st.expander(label):
-            st.markdown(nc.contact_card_html(c, today), unsafe_allow_html=True)
+            st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
             if st.toggle("Modifier", key=f"tg_{c['id']}"):
                 edit_form(c, c["id"])
+                photo_box(c)
     if len(found) > lim:
         if st.button(f"Afficher plus ({len(found) - lim} restants)"):
             st.session_state.lim = lim + 30
@@ -486,7 +520,7 @@ def relance_block(title, items, kind):
         st.markdown("<div class='hint'>Rien ici.</div>", unsafe_allow_html=True)
         return
     for c in items:
-        st.markdown(nc.contact_card_html(c, today), unsafe_allow_html=True)
+        st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
         b1, b2 = st.columns(2)
         if b1.button("✓ Fait aujourd'hui", key=f"act_done_{kind}_{c['id']}"):
             save_update(c["id"], dict(tache="", echeance="", dernier_contact=today.isoformat()), "Relance notée")
