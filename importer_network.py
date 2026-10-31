@@ -58,13 +58,13 @@ EXTRA = [
     ("P", "Conseil donné", 40, "long"), ("Q", "ID app", 12, "text"), ("R", "Relation", 14, "text"),
     ("S", "Historique", 50, "long"), ("T", "Projets d'avenir", 40, "long"),
     ("U", "École / faculté", 20, "text"), ("V", "Niveau d'études", 10, "text"), ("W", "Études", 11, "text"),
-    ("X", "Employeur", 24, "text"), ("Y", "Poste", 26, "text"),
+    ("X", "Employeur", 24, "text"), ("Y", "Poste", 26, "text"), ("Z", "Associations", 24, "text"),
 ]
 NIVEAUX = ["B1", "B2", "B3", "Bachelor obtenu", "M1", "M2", "Doctorat"]
 ETUDES = ["En cours", "Terminées"]
 RELATIONS = ["Network", "Ami", "À contacter"]
 ID_COL = "Q"
-LAST_COL = "Y"
+LAST_COL = "Z"
 
 
 # --------------------------------------------------------------------------- outils XML
@@ -254,7 +254,7 @@ def ensure_columns(bk: Book, log: list):
         return
     if any(titles.get(c) and titles[c] != t for c, t, _, _ in EXTRA):
         bad = {c: titles[c] for c, t, _, _ in EXTRA if titles.get(c) and titles[c] != t}
-        raise SystemExit(f"Les colonnes J à Y de « Network » contiennent déjà autre chose : {bad}. Rien n'a été modifié.")
+        raise SystemExit(f"Les colonnes J à Z de « Network » contiennent déjà autre chose : {bad}. Rien n'a été modifié.")
     todo = [e for e in EXTRA if not titles.get(e[0])]
     s_head = bk.style(head.get("G"))
     sample = rows.get(FIRST_ROW) or ""
@@ -368,7 +368,7 @@ def excel_contacts(bk: Book):
                         categorie=bk.value(c.get("J")), poste=bk.value(c.get("K")), anecdote=bk.value(c.get("M")),
                         hobbies=bk.value(c.get("N")), points_communs=bk.value(c.get("O")), conseil=bk.value(c.get("P")), relation=bk.value(c.get("R")), historique=bk.value(c.get("S")), projets=bk.value(c.get("T")),
                         ecole=bk.value(c.get("U")), niveau=bk.value(c.get("V")), etudes=bk.value(c.get("W")),
-                        employeur=bk.value(c.get("X")), fonction=bk.value(c.get("Y")),
+                        employeur=bk.value(c.get("X")), fonction=bk.value(c.get("Y")), associations=bk.value(c.get("Z")),
                         id=bk.value(c.get(ID_COL)).strip(), linkedin=links.get(f"C{r}", "")))
     return out
 
@@ -405,7 +405,7 @@ def contact_to_cells(c: dict):
         "I": nc.parse_date(c.get("dernier_contact")) or nc.parse_date(c.get("date_rencontre")),
         "J": c.get("categorie", ""), "K": c.get("poste", ""), "L": met, "M": c.get("anecdote", ""), "N": c.get("hobbies", ""),
         "O": c.get("points_communs", ""), "P": c.get("conseil", ""), "R": c.get("relation", ""), "S": c.get("historique", ""), "T": c.get("projets", ""),
-        "U": c.get("ecole", ""), "V": c.get("niveau", ""), "W": c.get("etudes", ""), "X": c.get("employeur", ""), "Y": c.get("fonction", ""), ID_COL: c.get("id", ""),
+        "U": c.get("ecole", ""), "V": c.get("niveau", ""), "W": c.get("etudes", ""), "X": c.get("employeur", ""), "Y": c.get("fonction", ""), "Z": c.get("associations", ""), ID_COL: c.get("id", ""),
     }
 
 
@@ -575,7 +575,7 @@ def backup_sheet(tabs: dict, xlsx: Path, stamp: datetime, force=False):
 FIELD_COL = {"nom": "B", "prenom": "C", "institution": "D", "utile_pour": "E", "raconte": "F", "tache": "G",
              "echeance": "H", "dernier_contact": "I", "categorie": "J", "poste": "K", "rencontre_ou": "L",
              "anecdote": "M", "hobbies": "N", "points_communs": "O", "conseil": "P", "relation": "R",
-             "historique": "S", "projets": "T", "ecole": "U", "niveau": "V", "etudes": "W", "employeur": "X", "fonction": "Y"}
+             "historique": "S", "projets": "T", "ecole": "U", "niveau": "V", "etudes": "W", "employeur": "X", "fonction": "Y", "associations": "Z"}
 APPEND = set(nc.APPEND_FIELDS) | {"historique"}      # textes complétés à la suite dans l'app
 DATE_FIELDS = {"echeance", "dernier_contact"}
 

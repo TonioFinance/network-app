@@ -19,7 +19,7 @@ COLUMNS = [
     "id", "cree_le", "prenom", "nom", "categorie", "institution", "poste", "rencontre_ou", "date_rencontre",
     "anecdote", "raconte", "hobbies", "points_communs", "utile_pour", "chaleur", "tache", "echeance",
     "dernier_contact", "telephone", "linkedin", "importe", "relation", "conseil", "historique", "projets",
-    "ecole", "niveau", "etudes", "employeur", "fonction",
+    "ecole", "niveau", "etudes", "employeur", "fonction", "associations",
 ]
 LABELS = {
     "prenom": "Prénom", "nom": "Nom", "categorie": "Catégorie", "institution": "Institution / école",
@@ -29,7 +29,7 @@ LABELS = {
     "tache": "Tâche à faire", "echeance": "Échéance", "dernier_contact": "Dernier contact",
     "telephone": "Numéro", "linkedin": "Lien LinkedIn", "relation": "Relation",
     "conseil": "Conseil qu'il m'a donné", "historique": "Historique", "projets": "Projets d'avenir",
-    "ecole": "École / faculté", "niveau": "Niveau d'études", "etudes": "Études", "employeur": "Employeur", "fonction": "Poste",
+    "ecole": "École / faculté", "niveau": "Niveau d'études", "etudes": "Études", "employeur": "Employeur", "fonction": "Poste", "associations": "Associations",
 }
 
 # Catégories : (nom, icône Phosphor). Le premier groupe = pro, le second = études et perso.
@@ -54,6 +54,19 @@ CAT_ICON = dict(CATEGORIES)
 RELATIONS = ["Network", "Ami", "À contacter"]
 NIVEAUX = ["B1", "B2", "B3", "Bachelor obtenu", "M1", "M2", "Doctorat"]
 ETUDES = ["En cours", "Terminées"]
+ASSOCIATIONS = ["GUIC", "Alumni GUIC", "Comité GSEM", "IFSA"]   # proposées par défaut ; on peut en ajouter d'autres
+
+
+def assoc_list(c) -> list:
+    return [a.strip() for a in re.split(r"[,;]", str(c.get("associations") or "")) if a.strip()]
+
+
+def all_associations(contacts) -> list:
+    seen = {norm(a).strip(): a for a in ASSOCIATIONS}
+    for c in contacts:
+        for a in assoc_list(c):
+            seen.setdefault(norm(a).strip(), a)
+    return list(seen.values())
 CHALEURS = ["Chaud", "Tiède", "Froid"]
 CHALEUR_CLS = {"Chaud": "hot", "Tiède": "warm", "Froid": "cold"}
 SANS_NOUVELLES_JOURS = 45          # « À relancer » : contact chaud ou tiède sans nouvelles depuis ce nombre de jours
@@ -340,7 +353,7 @@ def norm(s: str) -> str:
     return "".join(ch for ch in s if not unicodedata.combining(ch))
 
 
-SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "historique", "raconte", "projets", "ecole", "employeur", "fonction",
+SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "historique", "raconte", "projets", "ecole", "employeur", "fonction", "associations",
                  "hobbies", "points_communs", "utile_pour", "tache"]
 
 
@@ -379,7 +392,7 @@ def institutions(contacts) -> list:
     return sorted(((label[k], n) for k, n in count.items()), key=lambda x: (-x[1], norm(x[0])))
 
 
-def search(contacts, q="", cats=None, insts=None, relations=None):
+def search(contacts, q="", cats=None, insts=None, relations=None, assocs=None):
     words = norm(q).split()
     out = []
     for c in contacts:
@@ -390,6 +403,8 @@ def search(contacts, q="", cats=None, insts=None, relations=None):
             if not mine & {norm(i).strip() for i in insts}:
                 continue
         if relations and c.get("relation", "") not in relations:
+            continue
+        if assocs and not {norm(a).strip() for a in assoc_list(c)} & {norm(a).strip() for a in assocs}:
             continue
         blob = norm(" ".join(c.get(k, "") for k in SEARCH_FIELDS))
         if all(w in blob for w in words):
@@ -472,6 +487,8 @@ def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -
         chips.append(f"<span class='chip'><i class='ph {icon}'></i> {e(c['categorie'])}</span>")
     if c.get("relation"):
         chips.append(f"<span class='chip'><i class='ph ph-tag'></i> {e(c['relation'])}</span>")
+    for a in assoc_list(c):
+        chips.append(f"<span class='chip chip--assoc'><i class='ph ph-users-three'></i> {e(a)}</span>")
     task = ""
     if c.get("tache") or c.get("echeance"):
         ech = parse_date(c.get("echeance"))
@@ -528,7 +545,7 @@ def kpi_html(items) -> str:
 
 
 # --------------------------------------------------------------------------- « Nouvelles » : texte libre rangé par l'IA (Gemini)
-APPEND_FIELDS = {"conseil": " · ", "anecdote": " · ", "raconte": " · ", "projets": " · ", "hobbies": ", ", "points_communs": ", ", "utile_pour": " · "}
+APPEND_FIELDS = {"associations": ", ", "conseil": " · ", "anecdote": " · ", "raconte": " · ", "projets": " · ", "hobbies": ", ", "points_communs": ", ", "utile_pour": " · "}
 REPLACE_FIELDS = ["ecole", "niveau", "etudes", "employeur", "fonction", "categorie", "relation", "tache", "echeance"]
 NEWS_FIELDS = list(APPEND_FIELDS) + REPLACE_FIELDS
 GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"]
@@ -564,6 +581,7 @@ Champs possibles par personne (ne mets QUE ceux que la note renseigne vraiment) 
 - niveau : une de B1, B2, B3 (bachelor 1re à 3e année), « Bachelor obtenu » (bachelor fini, pas encore de master), M1, M2 (master), Doctorat — seulement si dit
 - etudes : « En cours » ou « Terminées » — seulement si dit
 - employeur : entreprise où il travaille (y compris stage ou temps partiel), seulement si nouveau ou changé
+- associations : associations ou groupes où Antoine le côtoie (GUIC, Alumni GUIC, Comité GSEM, IFSA…), seulement si nouveau
 - fonction : son poste chez cet employeur (Analyst, stage, temps partiel…), seulement si nouveau ou changé
 - categorie : une de : {cats} (seulement si évident et nouveau)
 - relation : Network, Ami ou À contacter (seulement si Antoine le dit)
@@ -692,3 +710,15 @@ def make_thumb(data: bytes, size: int = 160) -> str:
         if len(b64) < 40000:
             return b64
     return b64
+
+
+def event_view(contacts, assocs, today: date | None = None):
+    """Préparer un événement : les contacts des associations choisies, ceux avec une tâche d'abord (retard, puis échéance)."""
+    today = today or date.today()
+    people = search(contacts, "", None, None, None, assocs)
+    with_task = [c for c in people if c.get("tache") or c.get("echeance")]
+    others = [c for c in people if c not in with_task]
+    with_task.sort(key=lambda c: (parse_date(c.get("echeance")) or date.max, norm(c.get("prenom", ""))))
+    others.sort(key=lambda c: (last_touch(c) or date.min, norm(c.get("prenom", ""))))      # les moins revus d'abord
+    late = sum(1 for c in with_task if (parse_date(c.get("echeance")) or date.max) < today)
+    return with_task, others, late

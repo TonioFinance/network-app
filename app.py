@@ -117,6 +117,10 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
 .chip--hot { color: var(--red); background: rgba(225,29,72,0.12); border-color: rgba(225,29,72,0.3); }
 .chip--warm { color: var(--amber); background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
 .chip--cold { color: #7DD3FC; background: rgba(56,189,248,0.10); border-color: rgba(56,189,248,0.28); }
+.chip--assoc { color: var(--green); background: rgba(52,211,153,0.10); border-color: rgba(52,211,153,0.28); }
+.ev-line { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 14px; color: #E2E8F0; }
+.ev-line b { color: #FFFFFF; }
+.ev-line span { color: var(--text-muted); font-size: 13px; }
 .nc-task { margin-top: 12px; padding: 9px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; color: var(--amber); background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); }
 .nc-task.late { color: var(--red); background: rgba(225,29,72,0.10); border-color: rgba(225,29,72,0.3); }
 .nc-rows { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 14px 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.07); }
@@ -245,7 +249,7 @@ st.markdown("".join([
     nc.kpi_html([("En retard", len(late), "var(--red)"), ("Cette semaine", len(week), "var(--amber)")]),
 ]), unsafe_allow_html=True)
 
-tab_add, tab_news, tab_net, tab_rel = st.tabs(["Ajouter", "Nouvelles", "Réseau", "À relancer"])
+tab_add, tab_news, tab_net, tab_ev, tab_rel = st.tabs(["Ajouter", "Nouvelles", "Réseau", "Événement", "À relancer"])
 
 CAT_NAMES = [c for c, _ in nc.CATEGORIES]
 ECOLES = sorted({c.get("ecole", "") for c in contacts if c.get("ecole")}, key=nc.norm)
@@ -270,6 +274,21 @@ def pick(label, options, value="", key=None):
     opts = ["—"] + options
     v = st.selectbox(label, opts, index=opts.index(value) if value in opts else 0, key=key)
     return "" if v == "—" else v
+
+
+ASSOC_OPTS = nc.all_associations(contacts)
+
+
+def assoc_field(c=None, k="add"):
+    """Associations : plusieurs choix, liste proposée + nouvelles valeurs acceptées."""
+    cur = nc.assoc_list(c or {})
+    opts = ASSOC_OPTS + [a for a in cur if a not in ASSOC_OPTS]
+    try:
+        v = st.multiselect("Associations", opts, default=cur, key=f"{k}_assoc", accept_new_options=True,
+                           placeholder="GUIC, Comité GSEM, IFSA…")
+    except TypeError:
+        v = st.multiselect("Associations", opts, default=cur, key=f"{k}_assoc")
+    return ", ".join(x.strip() for x in v if x.strip())
 
 
 def study_job_fields(c=None, k="add"):
@@ -308,6 +327,7 @@ with tab_add:
         nom = c2.text_input("Nom *", placeholder="Nom")
         cat = choice("Catégorie", CAT_NAMES, key="add_cat")
         sj = study_job_fields(None, "add")
+        sj["associations"] = assoc_field(None, "add")
         c1, c2 = st.columns([3, 2])
         ou = c1.text_input("Rencontré où", placeholder="Wick, soirée GUIC, cours…")
         quand = c2.date_input("Quand", value=today, format="DD.MM.YYYY")
@@ -482,6 +502,7 @@ def edit_form(c, key):
         nom = c2.text_input("Nom", c["nom"])
         cat = st.selectbox("Catégorie", ["—"] + CAT_NAMES, index=(CAT_NAMES.index(c["categorie"]) + 1) if c["categorie"] in CAT_NAMES else 0)
         sj = study_job_fields(c, f"ed_{key}")
+        sj["associations"] = assoc_field(c, f"ed_{key}")
         raconte = st.text_area("Personnalité, relation", c["raconte"], height=80)
         projets = st.text_area("Projets d'avenir", c.get("projets", ""), height=70)
         conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", c.get("conseil", ""), height=70)
@@ -536,8 +557,10 @@ with tab_net:
     insts = c1.multiselect("Institution", [i for i, _ in inst_opts], key="f_inst", format_func=lambda i: f"{i} ({inst_count.get(i, 0)})",
                            placeholder="UBS, GSEM, HEC Lausanne…")
     cats = c2.multiselect("Catégories", CAT_NAMES, key="f_cat")
-    rels = st.multiselect("Relation", nc.RELATIONS, key="f_rel")
-    found = nc.search(contacts, q, cats, insts, rels)
+    c1, c2 = st.columns(2)
+    rels = c1.multiselect("Relation", nc.RELATIONS, key="f_rel")
+    assocs = c2.multiselect("Associations", ASSOC_OPTS, key="f_assoc")
+    found = nc.search(contacts, q, cats, insts, rels, assocs)
     st.markdown(f"<div class='section-title'>Contacts <span class='count'>{len(found)}</span></div>", unsafe_allow_html=True)
     st.caption("Copie de ton Excel, qui fait foi. Tes ajouts et modifications y sont reportés à la prochaine synchro (21h30 ou double-clic sur Synchroniser_Network).")
     if not contacts:
@@ -576,6 +599,32 @@ def relance_block(title, items, kind):
         if b2.button("Reporter de 7 jours", key=f"act_snooze_{kind}_{c['id']}"):
             save_update(c["id"], dict(echeance=(base + timedelta(days=7)).isoformat(), tache=c["tache"] or "Prendre des nouvelles"), "Reporté de 7 jours")
             st.rerun()
+
+
+# =============================================================================
+# 7 bis. ÉVÉNEMENT : qui je vais croiser et ce que j'ai à faire avec eux
+# =============================================================================
+with tab_ev:
+    st.markdown("<div class='hint' style='text-align:left'>Tu vas à un événement ? Choisis les associations présentes : "
+                "tu vois qui tu vas croiser, avec tes tâches en cours en premier, puis les personnes que tu n'as pas vues depuis longtemps.</div>",
+                unsafe_allow_html=True)
+    ev_assocs = st.multiselect("Associations présentes", ASSOC_OPTS, key="ev_assocs", placeholder="GUIC, IFSA…")
+    if ev_assocs:
+        todo_c, rest_c, n_late = nc.event_view(contacts, ev_assocs, today)
+        st.markdown(nc.kpi_html([("Personnes", len(todo_c) + len(rest_c), "var(--blue-300)"),
+                                 ("Tâches", len(todo_c), "var(--amber)"), ("En retard", n_late, "var(--red)")]), unsafe_allow_html=True)
+        st.markdown(f"<div class='section-title'>À faire avec eux <span class='count'>{len(todo_c)}</span></div>", unsafe_allow_html=True)
+        if not todo_c:
+            st.markdown("<div class='hint'>Aucune tâche en cours avec ces personnes.</div>", unsafe_allow_html=True)
+        for c in todo_c:
+            st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
+        st.markdown(f"<div class='section-title'>Les autres, du moins revu au plus récent <span class='count'>{len(rest_c)}</span></div>",
+                    unsafe_allow_html=True)
+        for c in rest_c:
+            lt = nc.last_touch(c)
+            sub = " · ".join(x for x in (nc.study_line(c) or nc.job_line(c), f"vu le {nc.fr_date(lt)}" if lt else "jamais revu") if x)
+            with st.expander(f"{c['prenom']} {c['nom'].upper()} — {sub}"):
+                st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
 
 
 with tab_rel:
