@@ -118,6 +118,12 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
 .chip--warm { color: var(--amber); background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
 .chip--cold { color: #7DD3FC; background: rgba(56,189,248,0.10); border-color: rgba(56,189,248,0.28); }
 .chip--assoc { color: var(--green); background: rgba(52,211,153,0.10); border-color: rgba(52,211,153,0.28); }
+.nc-fold > summary { list-style: none; cursor: pointer; }
+.nc-fold > summary::-webkit-details-marker { display: none; }
+.nc-toggle { margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--blue-300); }
+.nc-toggle::after { content: "Voir la fiche ▾"; }
+.nc-fold[open] .nc-toggle::after { content: "Masquer ▴"; }
+.nc-note { margin-top: 10px; font-size: 13px; color: var(--text-muted); font-weight: 600; }
 .ev-line { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 14px; color: #E2E8F0; }
 .ev-line b { color: #FFFFFF; }
 .ev-line span { color: var(--text-muted); font-size: 13px; }
@@ -562,19 +568,17 @@ with tab_net:
     assocs = c2.multiselect("Associations", ASSOC_OPTS, key="f_assoc")
     found = nc.search(contacts, q, cats, insts, rels, assocs)
     st.markdown(f"<div class='section-title'>Contacts <span class='count'>{len(found)}</span></div>", unsafe_allow_html=True)
-    st.caption("Copie de ton Excel, qui fait foi. Tes ajouts et modifications y sont reportés à la prochaine synchro (21h30 ou double-clic sur Synchroniser_Network).")
+    st.caption("Copie de ton Excel, qui fait foi. Tes ajouts et modifications y sont reportés à la prochaine synchro (double-clic sur Synchroniser_Network).")
     if not contacts:
         st.markdown("<div class='hint'>Ton réseau est vide pour l'instant : ajoute ta première rencontre dans l'onglet Ajouter.</div>", unsafe_allow_html=True)
     elif not found:
         st.markdown("<div class='hint'>Aucun contact ne correspond.</div>", unsafe_allow_html=True)
     lim = st.session_state.get("lim", 30)
     for c in found[:lim]:
-        label = f"{c['prenom']} {c['nom'].upper()}" + (f" · {c['institution']}" if c["institution"] else "")
-        with st.expander(label):
-            st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
-            if st.toggle("Modifier", key=f"tg_{c['id']}"):
-                edit_form(c, c["id"])
-                photo_box(c)
+        st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], ""), collapsible=True), unsafe_allow_html=True)
+        if st.toggle("Modifier", key=f"tg_{c['id']}"):
+            edit_form(c, c["id"])
+            photo_box(c)
     if len(found) > lim:
         if st.button(f"Afficher plus ({len(found) - lim} restants)"):
             st.session_state.lim = lim + 30
@@ -590,7 +594,7 @@ def relance_block(title, items, kind):
         st.markdown("<div class='hint'>Rien ici.</div>", unsafe_allow_html=True)
         return
     for c in items:
-        st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
+        st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], ""), collapsible=True), unsafe_allow_html=True)
         b1, b2 = st.columns(2)
         if b1.button("✓ Fait aujourd'hui", key=f"act_done_{kind}_{c['id']}"):
             save_update(c["id"], dict(tache="", echeance="", dernier_contact=today.isoformat()), "Relance notée")
@@ -615,16 +619,9 @@ with tab_ev:
                                  ("Tâches", len(todo_c), "var(--amber)"), ("En retard", n_late, "var(--red)")]), unsafe_allow_html=True)
 
         def ev_row(c, show_task):
-            head = " · ".join(x for x in (f"{c['prenom']} {c['nom'].upper()}".strip(), c.get("categorie"), c.get("relation")) if x)
-            if show_task:
-                ech = nc.parse_date(c.get("echeance"))
-                flag = "🔴 " if ech and ech < today else ""
-                tail = flag + (c.get("tache") or "À faire") + (f" ({nc.fr_date(ech)})" if ech else "")
-            else:
-                lt = nc.last_touch(c)
-                tail = f"vu le {nc.fr_date(lt)}" if lt else "jamais revu"
-            with st.expander(f"{head} — {tail}"):
-                st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], "")), unsafe_allow_html=True)
+            lt = nc.last_touch(c)
+            note = f"Vu le {nc.fr_date(lt)}" if lt else "Jamais revu"
+            st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], ""), collapsible=True, note=note), unsafe_allow_html=True)
 
         st.markdown(f"<div class='section-title'>À faire avec eux <span class='count'>{len(todo_c)}</span></div>", unsafe_allow_html=True)
         if not todo_c:

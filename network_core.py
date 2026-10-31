@@ -374,8 +374,10 @@ def inst_of(c) -> list:
 
 
 def study_line(c) -> str:
-    lv = " ".join(x for x in (c.get("niveau"), f"({c['etudes'].lower()})" if c.get("etudes") else "") if x)
-    return " · ".join(x for x in (c.get("ecole"), lv) if x)
+    base = " · ".join(x for x in (c.get("ecole"), c.get("niveau")) if x)
+    if not c.get("etudes"):
+        return base
+    return f"{base} ({c['etudes'].lower()})" if base else f"Études {c['etudes'].lower()}"
 
 
 def job_line(c) -> str:
@@ -474,7 +476,8 @@ def _value_html(v, mode="points"):
     return "<ul>" + "".join(f"<li>{e(p)}</li>" for p in pts) + "</ul>"
 
 
-def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -> str:
+def contact_card_html(c, today: date | None = None, extra="", photo: str = "", collapsible: bool = False, note: str = "") -> str:
+    """collapsible : seul l'en-tête (photo, nom, études/emploi, pastilles, tâche) est visible ; un clic déplie la fiche."""
     today = today or date.today()
     icon = CAT_ICON.get(c.get("categorie"), "ph-user")
     lines_sub = [x for x in (study_line(c), job_line(c)) if x]
@@ -521,8 +524,7 @@ def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -
     li = ""
     if c.get("linkedin"):
         li = f"<a class='nc-li' href='{e(c['linkedin'])}' target='_blank' rel='noopener'><i class='ph ph-linkedin-logo'></i></a>"
-    return "".join([
-        "<div class='card nc'>",
+    head_html = "".join([
         "<div class='nc-head'>",
         (f"<div class='nc-avatar nc-photo'><img src='data:image/jpeg;base64,{photo}' alt=''></div>" if photo
          else f"<div class='nc-avatar'>{e(initials(c))}</div>"),
@@ -531,12 +533,17 @@ def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -
         f"<div class='nc-sub'>{sub}</div>" if sub else "",
         "</div>", li, "</div>",
         f"<div class='nc-chips'>{''.join(chips)}</div>" if chips else "",
-        task,
+        task or (f"<div class='nc-note'>{e(note)}</div>" if note else ""),
+    ])
+    detail_html = "".join([
         f"<div class='nc-rows'>{body}</div>" if body else "",
         f"<div class='nc-foot'>{e(foot)}</div>" if foot else "",
         extra,
-        "</div>",
     ])
+    if collapsible:
+        return (f"<details class='card nc nc-fold'><summary>{head_html}<div class='nc-toggle'></div></summary>"
+                f"{detail_html}</details>")
+    return f"<div class='card nc'>{head_html}{detail_html}</div>"
 
 
 def kpi_html(items) -> str:
