@@ -555,7 +555,8 @@ def kpi_html(items) -> str:
 APPEND_FIELDS = {"associations": ", ", "conseil": " · ", "anecdote": " · ", "raconte": " · ", "projets": " · ", "hobbies": ", ", "points_communs": ", ", "utile_pour": " · "}
 REPLACE_FIELDS = ["ecole", "niveau", "etudes", "employeur", "fonction", "categorie", "relation", "tache", "echeance"]
 NEWS_FIELDS = list(APPEND_FIELDS) + REPLACE_FIELDS
-GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"]
+GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"]   # analyse : bon et pas cher
+GEMINI_FAST = ["gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]                        # dictée : le plus rapide
 
 
 def news_prompt(text, contacts, today, event_date, selected=None):
@@ -610,12 +611,13 @@ Note d'Antoine :
 \"\"\"{text}\"\"\""""
 
 
-def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=90):
+def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=45, models=None, retries=1):
     """Appelle Gemini et renvoie (texte, modèle utilisé).
     Modèle surchargé (503), quota (429) ou modèle introuvable : on réessaie une fois, puis on passe au modèle suivant."""
     import time
     import requests
-    models = ([model] if model else []) + [m for m in GEMINI_MODELS if m != model]
+    base = models or GEMINI_MODELS
+    models = ([model] if model else []) + [m for m in base if m != model]
     cfg = {"temperature": 0.2}
     if json_mode:
         cfg["responseMimeType"] = "application/json"
@@ -623,7 +625,7 @@ def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=90):
     errors = []
     for m in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
-        for attempt in range(2):
+        for attempt in range(1 + retries):
             try:
                 r = requests.post(url, params={"key": api_key}, json=body, timeout=timeout)
             except requests.RequestException as ex:
@@ -635,8 +637,8 @@ def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=90):
                 except (KeyError, IndexError, ValueError):
                     errors.append(f"{m} : réponse vide")
                     break
-            if r.status_code in (429, 500, 502, 503, 504) and attempt == 0:
-                time.sleep(2)
+            if r.status_code in (429, 500, 502, 503, 504) and attempt < retries:
+                time.sleep(1)
                 continue
             if r.status_code in (400, 404) and "not found" in r.text.lower():
                 errors.append(f"{m} : modèle introuvable")
@@ -647,7 +649,7 @@ def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=90):
             elif r.status_code in (401, 403):
                 raise RuntimeError(f"Clé Gemini refusée ({r.status_code}) : vérifie GEMINI_API_KEY et le crédit du projet.")
             else:
-                errors.append(f"{m} : erreur {r.status_code}")
+                errors.append(f"{m} : erreur {r.status_code} {r.text[:120]!r}")
             break
     raise RuntimeError("Gemini indisponible pour le moment (" + " ; ".join(errors) + "). Réessaie dans une minute.")
 
@@ -669,7 +671,7 @@ def transcribe(audio: bytes, mime: str, api_key, model=None) -> str:
     parts = [{"text": "Transcris fidèlement ce message vocal, en français, avec la ponctuation. "
                       "Réponds uniquement avec le texte transcrit, sans commentaire."},
              {"inline_data": {"mime_type": mime or "audio/wav", "data": base64.b64encode(audio).decode()}}]
-    txt, _m = gemini_generate(parts, api_key, model, json_mode=False)
+    txt, _m = gemini_generate(parts, api_key, model, json_mode=False, timeout=30, models=GEMINI_FAST, retries=0)
     return txt.strip().strip('"')
 
 
@@ -768,7 +770,7 @@ def event_view(contacts, assocs, today: date | None = None):
 
 
 # --------------------------------------------------------------------------- « Ajouter » : description libre -> champs pré-remplis
-CONTACT_AI_FIELDS = ["rencontre_ou", "raconte", "projets", "hobbies", "points_communs", "conseil", "anecdote", "utile_pour",
+CONTACT_AI_FIELDS = ["prenom", "nom", "rencontre_ou", "raconte", "projets", "hobbies", "points_communs", "conseil", "anecdote", "utile_pour",
                      "relation", "categorie", "ecole", "niveau", "etudes", "employeur", "fonction", "associations", "tache", "echeance"]
 
 
@@ -780,6 +782,7 @@ Il décrit la personne librement (souvent dicté). Remplis les champs ci-dessous
 Date du jour : {today}. Déjà saisi par Antoine (ne le contredis pas) : {have}.
 
 Champs (ne mets QUE ce que la description dit vraiment, chaîne vide sinon) :
+- prenom, nom : prénom et nom de famille de la personne (orthographe la plus probable)
 - rencontre_ou : où ou dans quel cadre ils se sont rencontrés (« Soirée GUIC », « Coffee chat », « Uniparty »…)
 - raconte : sa personnalité, sa façon de fonctionner, comment Antoine s'entend avec lui, son parcours
 - projets : ses projets d'avenir (études visées, poste rêvé, création d'entreprise, départ à l'étranger…)

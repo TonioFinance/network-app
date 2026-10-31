@@ -413,11 +413,14 @@ with tab_add:
         # « fait » seulement après une transcription réussie ; après un échec, on ne réessaie qu'au clic sur le bouton
         if h != st.session_state.get("mic_done") and (h != st.session_state.get("mic_fail") or prefill):
             heard, err = None, None
+            import time as _t
+            _t0 = _t.time()
             with st.spinner("Transcription de ta dictée…"):
                 try:
-                    heard = nc.transcribe(audio.getvalue(), getattr(audio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model") or None)
+                    heard = nc.transcribe(audio.getvalue(), getattr(audio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model_dictee") or None)
                 except Exception as ex:
                     err = f"{type(ex).__name__} : {ex}"
+            st.session_state.t_dictee = _t.time() - _t0
             if heard:
                 st.session_state.mic_done = h
                 desc = (desc.strip() + " " + heard).strip()
@@ -432,6 +435,8 @@ with tab_add:
         if not desc.strip():
             st.warning("Écris ou dicte d'abord quelques phrases dans la description.")
         else:
+            import time as _t2
+            _t1 = _t2.time()
             with st.spinner("Analyse en cours…"):
                 try:
                     known = {f: v for f, v in current.items() if f in ("prenom", "nom", "categorie", "ecole", "employeur") and v}
@@ -448,7 +453,9 @@ with tab_add:
                     merged["_ai"] = True
                     st.session_state.add_pref = merged
                     st.session_state.add_round = rnd_a + 1
-                    st.session_state.add_msg = f"{len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer."
+                    _td = st.session_state.pop("t_dictee", None)
+                    st.session_state.add_msg = (f"{len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer. "
+                                                f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_t2.time() - _t1:.0f} s)")
                     done_ai = True
                 except Exception as ex:
                     st.error(f"Analyse impossible : {ex}. Ta description reste dans la case.")
