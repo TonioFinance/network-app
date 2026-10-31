@@ -574,8 +574,8 @@ Règles :
 - Reformule proprement en français, phrases courtes, style notes. N'invente rien, ne déduis rien qui n'est pas écrit.
 - Si plusieurs contacts peuvent correspondre, contact_id = null, ids possibles dans candidats, une phrase dans doute.
 - historique : une phrase résumant l'échange avec cette personne (sans la date).
-- evenement : devine le cadre de la rencontre en 2 à 6 mots si la note le laisse comprendre (ex. « Soirée alumni GIC »,
-  « Coffee chat », « Session du GIC ») ; sinon chaîne vide.
+- evenement : devine le cadre de la rencontre en 2 à 6 mots si la note le laisse comprendre (ex. « Soirée alumni GUIC »,
+  « Coffee chat », « Session du GUIC ») ; sinon chaîne vide.
 
 Réponds UNIQUEMENT en JSON, de la forme :
 {{"evenement": "", "personnes": [{{"contact_id": "id ou null", "candidats": [], "doute": "", "prenom": "", "nom": "",
