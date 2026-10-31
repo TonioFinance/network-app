@@ -662,6 +662,25 @@ def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=45, mode
     raise RuntimeError("Gemini indisponible pour le moment (" + " ; ".join(errors) + "). Réessaie dans une minute.")
 
 
+AUDIO_NOTE = "\n[Un enregistrement audio est joint : écoute-le, il fait partie de la note. Ajoute au JSON la clé \"transcription\" : sa transcription fidèle, ponctuée.]"
+
+
+def gemini_audio_json(prompt, audio: bytes, mime: str, api_key, model=None, timeout=60):
+    """Dictée + analyse en UN seul appel : le modèle écoute l'audio et renvoie le JSON (avec la clé « transcription »)."""
+    import base64
+    parts = [{"text": prompt + AUDIO_NOTE}, {"inline_data": {"mime_type": mime or "audio/wav", "data": base64.b64encode(audio).decode()}}]
+    txt, m = gemini_generate(parts, api_key, model, json_mode=True, timeout=timeout)
+    if txt.startswith("```"):
+        txt = re.sub(r"^```(json)?|```$", "", txt).strip()
+    try:
+        obj = json.loads(txt)
+    except ValueError:
+        raise RuntimeError(f"Réponse de Gemini illisible ({m}).")
+    if not isinstance(obj, dict):
+        raise RuntimeError("Réponse de Gemini inattendue.")
+    return obj, m
+
+
 def gemini_json(prompt, api_key, model=None, timeout=60):
     """Texte -> objet JSON (avec repli sur d'autres modèles)."""
     txt, m = gemini_generate([{"text": prompt}], api_key, model, json_mode=True, timeout=timeout)

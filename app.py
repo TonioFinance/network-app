@@ -67,6 +67,14 @@ h1, h2, h3, h4 { color: #FFFFFF !important; font-weight: 700 !important; letter-
 [class*="st-key-dictee"] textarea::placeholder { color: rgba(226,232,240,0.55) !important; }
 [class*="st-key-dictee"] [data-testid="stAudioInput"] > div, [class*="st-key-dictee"] [data-testid="stAudioInput"] section { background: rgba(255,255,255,0.10) !important;
   border: 1px solid rgba(255,255,255,0.28) !important; border-radius: 18px !important; }
+/* validation des nouvelles : un bloc par personne */
+[class*="st-key-nwcard"] { background: linear-gradient(160deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 100%); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 20px; padding: 18px 20px 8px; margin-top: 14px; box-shadow: 0 10px 28px rgba(0,0,0,0.28); }
+[class*="st-key-nwcard"] [data-testid="stCheckbox"] label p { font-size: 11px !important; font-weight: 800 !important; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-muted) !important; }
+[class*="st-key-nwcard"] [data-testid="stCheckbox"] { margin-top: 6px; }
+.nw-val { display: flex; gap: 10px; margin: -2px 0 10px 32px; color: #E2E8F0; font-size: 14.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.nw-val i { color: var(--blue-400); font-size: 16px; margin-top: 3px; flex-shrink: 0; }
+.nw-note { margin: -6px 0 12px 58px; color: var(--text-dim); font-size: 12px; font-weight: 600; }
 /* rond du micro = logo Nexus */
 [class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]),
 [class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) {
@@ -407,6 +415,7 @@ with tab_add:
     current = dict(prenom=prenom, nom=nom, categorie=cat or "", **sj, rencontre_ou=ou, date_rencontre=nc.iso(quand), raconte=raconte,
                    projets=projets, hobbies=hobbies, points_communs=communs, conseil=conseil, anecdote=anecdote, utile_pour=utile,
                    relation=relation or "", tache=tache, echeance=nc.iso(ech), telephone=tel, linkedin=li, _desc=desc)
+    direct_a = None
     if audio is not None:
         import hashlib
         h = hashlib.md5(audio.getvalue()).hexdigest()
@@ -415,15 +424,30 @@ with tab_add:
             heard, err = None, None
             import time as _t
             _t0 = _t.time()
-            with st.spinner("Transcription de ta dictée…"):
-                try:
-                    heard = nc.transcribe(audio.getvalue(), getattr(audio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model_dictee") or None)
-                except Exception as ex:
-                    err = f"{type(ex).__name__} : {ex}"
-            st.session_state.t_dictee = _t.time() - _t0
-            if heard:
+            if secret("dictee_directe") != "non":                    # voie rapide : un seul appel, le modèle écoute et remplit
+                with st.spinner("J'écoute et j'analyse ta dictée…"):
+                    try:
+                        known0 = {f: v for f, v in current.items() if f in ("prenom", "nom", "categorie", "ecole", "employeur") and v}
+                        if st.session_state.get("add_pref", {}).get("_ai"):
+                            known0 = {}
+                        r0, m0 = nc.gemini_audio_json(nc.contact_prompt(desc.strip() or "(voir l'enregistrement audio)", today.isoformat(), known0),
+                                                      audio.getvalue(), getattr(audio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model") or None)
+                        h0 = str(r0.get("transcription") or "").strip()
+                        if h0 or r0.get("champs"):
+                            direct_a, heard = r0, h0
+                    except Exception:
+                        direct_a = None                              # repli : transcription puis analyse
+            if direct_a is None:
+                with st.spinner("Transcription de ta dictée…"):
+                    try:
+                        heard = nc.transcribe(audio.getvalue(), getattr(audio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model_dictee") or None)
+                    except Exception as ex:
+                        err = f"{type(ex).__name__} : {ex}"
+            st.session_state.t_dictee = None if direct_a else _t.time() - _t0
+            st.session_state.t_direct = _t.time() - _t0 if direct_a else None
+            if heard or direct_a:
                 st.session_state.mic_done = h
-                desc = (desc.strip() + " " + heard).strip()
+                desc = (desc.strip() + " " + (heard or "")).strip()
                 current["_desc"] = desc
                 prefill = True                                   # dictée -> pré-remplissage directement
             else:
@@ -432,7 +456,7 @@ with tab_add:
                          + ". Appuie sur « Pré-remplir avec l'IA » pour réessayer.")
     if prefill:
         done_ai = False
-        if not desc.strip():
+        if not desc.strip() and not direct_a:
             st.warning("Écris ou dicte d'abord quelques phrases dans la description.")
         else:
             import time as _t2
@@ -442,7 +466,10 @@ with tab_add:
                     known = {f: v for f, v in current.items() if f in ("prenom", "nom", "categorie", "ecole", "employeur") and v}
                     if st.session_state.get("add_pref", {}).get("_ai"):
                         known = {}                               # nouvelle analyse : l'IA peut tout reproposer
-                    res, _m = nc.gemini_json(nc.contact_prompt(desc, today.isoformat(), known), GEMINI_KEY, secret("gemini_model") or None)
+                    if direct_a:
+                        res = direct_a
+                    else:
+                        res, _m = nc.gemini_json(nc.contact_prompt(desc, today.isoformat(), known), GEMINI_KEY, secret("gemini_model") or None)
                     ai = nc.clean_contact_fields(res)
                     merged = dict(current)
                     for f, v in ai.items():
@@ -454,8 +481,10 @@ with tab_add:
                     st.session_state.add_pref = merged
                     st.session_state.add_round = rnd_a + 1
                     _td = st.session_state.pop("t_dictee", None)
+                    _tdir = st.session_state.pop("t_direct", None)
                     st.session_state.add_msg = (f"{len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer. "
-                                                f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_t2.time() - _t1:.0f} s)")
+                                                + (f"(écoute + analyse en un appel : {_tdir:.0f} s)" if _tdir else
+                                                   f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_t2.time() - _t1:.0f} s)"))
                     done_ai = True
                 except Exception as ex:
                     st.error(f"Analyse impossible : {ex}. Ta description reste dans la case.")
@@ -493,6 +522,12 @@ with tab_add:
 # =============================================================================
 GEMINI_KEY = secret("GEMINI_API_KEY") or secret("gemini_api_key")
 NEW, SKIP = "__new__", "__skip__"
+NEWS_ORDER = ["ecole", "niveau", "etudes", "employeur", "fonction", "associations", "categorie", "relation", "raconte", "projets", "hobbies",
+              "points_communs", "conseil", "anecdote", "utile_pour", "tache", "echeance"]
+NEWS_ICON = {"ecole": "ph-graduation-cap", "niveau": "ph-student", "etudes": "ph-books", "employeur": "ph-buildings", "fonction": "ph-briefcase",
+             "associations": "ph-users-three", "categorie": "ph-tag", "relation": "ph-tag", "raconte": "ph-user-focus", "projets": "ph-rocket-launch",
+             "hobbies": "ph-person-simple-run", "points_communs": "ph-link-simple", "conseil": "ph-lightbulb", "anecdote": "ph-sparkle",
+             "utile_pour": "ph-star", "tache": "ph-check-square", "echeance": "ph-calendar-blank", "historique": "ph-clock-counter-clockwise"}
 by_id = {c["id"]: c for c in contacts}
 
 
@@ -529,6 +564,7 @@ with tab_news:
             ev_date = c2.date_input("Date", value=today, format="DD.MM.YYYY", key=f"news_date_{rnd}")
         go = st.button("Analyser avec l'IA", key=f"news_go_{rnd}", disabled=not GEMINI_KEY, use_container_width=True)
 
+    direct = None
     if naudio is not None:
         import hashlib
         import time as _tn
@@ -536,15 +572,29 @@ with tab_news:
         if nh != st.session_state.get("nmic_done") and (nh != st.session_state.get("nmic_fail") or go):
             heard, err = None, None
             _t0 = _tn.time()
-            with st.spinner("Transcription de ta dictée…"):
-                try:
-                    heard = nc.transcribe(naudio.getvalue(), getattr(naudio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model_dictee") or None)
-                except Exception as ex:
-                    err = f"{type(ex).__name__} : {ex}"
-            st.session_state.t_dictee_n = _tn.time() - _t0
-            if heard:
+            if secret("dictee_directe") != "non":                    # voie rapide : un seul appel, le modèle écoute et range
+                with st.spinner("J'écoute et j'analyse ta dictée…"):
+                    try:
+                        sel0 = [by_id[x] for x in picked if x in by_id]
+                        r0, m0 = nc.gemini_audio_json(nc.news_prompt(txt.strip() or "(voir l'enregistrement audio)", contacts, today.isoformat(),
+                                                                     ev_date.isoformat(), sel0),
+                                                      naudio.getvalue(), getattr(naudio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model") or None)
+                        h0 = str(r0.get("transcription") or "").strip()
+                        if h0 or r0.get("personnes"):
+                            direct, heard = (r0, m0), h0
+                    except Exception:
+                        direct = None                                # repli : transcription puis analyse
+            if direct is None:
+                with st.spinner("Transcription de ta dictée…"):
+                    try:
+                        heard = nc.transcribe(naudio.getvalue(), getattr(naudio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model_dictee") or None)
+                    except Exception as ex:
+                        err = f"{type(ex).__name__} : {ex}"
+            st.session_state.t_dictee_n = None if direct else _tn.time() - _t0
+            st.session_state.t_direct_n = _tn.time() - _t0 if direct else None
+            if heard or direct:
                 st.session_state.nmic_done = nh
-                txt = (txt.strip() + " " + heard).strip()
+                txt = (txt.strip() + " " + (heard or "")).strip()
                 go = True                                            # dictée -> analyse directement
             else:
                 st.session_state.nmic_fail = nh
@@ -552,7 +602,7 @@ with tab_news:
                          + ". Appuie sur « Analyser avec l'IA » pour réessayer.")
     analysed = False
     if go:
-        if not txt.strip():
+        if not txt.strip() and not direct:
             st.warning("Écris ou dicte d'abord ton récit.")
         else:
             import time as _tn2
@@ -560,8 +610,11 @@ with tab_news:
             with st.spinner("Analyse en cours…"):
                 try:
                     sel = [by_id[x] for x in picked if x in by_id]
-                    res, model = nc.gemini_json(nc.news_prompt(txt, contacts, today.isoformat(), ev_date.isoformat(), sel),
-                                                GEMINI_KEY, secret("gemini_model") or None)
+                    if direct:
+                        res, model = direct
+                    else:
+                        res, model = nc.gemini_json(nc.news_prompt(txt, contacts, today.isoformat(), ev_date.isoformat(), sel),
+                                                    GEMINI_KEY, secret("gemini_model") or None)
                     props = nc.clean_proposal(res, contacts)
                     if len(sel) == 1 and len(props) == 1 and not props[0]["contact_id"]:
                         props[0]["contact_id"] = sel[0]["id"]          # une seule personne choisie : c'est elle
@@ -571,8 +624,10 @@ with tab_news:
                     st.session_state.news_txt = txt
                     st.session_state.news_ver = ver + 1                # le récit (dicté) apparaît dans la zone de texte
                     _td = st.session_state.pop("t_dictee_n", None)
+                    _tdir = st.session_state.pop("t_direct_n", None)
                     st.session_state.news_info = (f"{len(props)} personne(s) repérée(s) : vérifie ci-dessous. "
-                                                  f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_tn2.time() - _t1:.0f} s)")
+                                                  + (f"(écoute + analyse en un appel : {_tdir:.0f} s)" if _tdir else
+                                                     f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_tn2.time() - _t1:.0f} s)"))
                     analysed = True
                 except Exception as ex:
                     st.error(f"Analyse impossible : {ex}. Ton texte reste dans la zone ci-dessus.")
@@ -591,38 +646,71 @@ with tab_news:
         others = [c["id"] for c in sorted(contacts, key=lambda c: (nc.norm(c["prenom"]), nc.norm(c["nom"])))]
         plan = []
         for i, p in enumerate(props):
-            name = f"{p['prenom']} {p['nom'].upper()}".strip() or "Personne"
-            st.markdown(f"<div class='section-title'>{nc.e(name)}</div>", unsafe_allow_html=True)
-            if p["doute"]:
-                st.warning(p["doute"])
             first = ([p["contact_id"]] if p["contact_id"] else []) + [x for x in p["candidats"] if x != p["contact_id"]]
             opts = first + [NEW, SKIP] + [x for x in others if x not in first]
             default = first[0] if first else NEW
-            target = st.selectbox("Contact", opts, index=opts.index(default), key=f"{k0}_t{i}", format_func=contact_label)
+            try:
+                card = st.container(key=f"nwcard_{news['n']}_{i}")
+            except TypeError:
+                card = st.container(border=True)
+            more = st.container()
+            with card:
+                head = st.empty()
+                if p["doute"]:
+                    st.warning(p["doute"])
+                target = st.selectbox("Contact", opts, index=opts.index(default), key=f"{k0}_t{i}", format_func=contact_label)
             if target == SKIP:
+                head.markdown("<div class='nc-sub'>Personne ignorée : rien ne sera enregistré.</div>", unsafe_allow_html=True)
                 continue
             pr, no = p["prenom"], p["nom"]
             if target == NEW:
-                c1, c2 = st.columns(2)
-                pr = c1.text_input("Prénom", p["prenom"], key=f"{k0}_p{i}")
-                no = c2.text_input("Nom", p["nom"], key=f"{k0}_n{i}")
+                with card:
+                    c1, c2 = st.columns(2)
+                    pr = c1.text_input("Prénom", p["prenom"], key=f"{k0}_p{i}")
+                    no = c2.text_input("Nom", p["nom"], key=f"{k0}_n{i}")
             cur_c = by_id.get(target, {})
-            fields = {}
-            for f, v in p["champs"].items():
-                cur = (cur_c.get(f) or "").strip()
-                use = st.checkbox(nc.LABELS.get(f, f), value=True, key=f"{k0}_u{i}_{f}")
-                if f == "echeance":
-                    val = st.date_input("Échéance", value=nc.parse_date(v), format="DD.MM.YYYY", key=f"{k0}_v{i}_{f}",
-                                        label_visibility="collapsed")
-                    val = nc.iso(val)
-                else:
-                    val = st.text_area(nc.LABELS.get(f, f), v, key=f"{k0}_v{i}_{f}", label_visibility="collapsed",
-                                       height=68 if len(v) < 90 else 110)
-                if cur and target != NEW:
-                    st.caption(("Ajouté à la suite de : " if f in nc.APPEND_FIELDS else "Remplace : ") + cur[:140])
-                if use and (val or "").strip():
-                    fields[f] = val
-            h = st.text_input("Historique", nc.hist_line(news["date"], ev_name, p["historique"]), key=f"{k0}_h{i}_{nc.norm(ev_name)[:20]}")
+            vals = {}
+            with more:
+                with st.expander("Modifier les textes de " + (pr or "cette personne")):
+                    for f, v in p["champs"].items():
+                        if f == "echeance":
+                            vals[f] = nc.iso(st.date_input("Échéance", value=nc.parse_date(v), format="DD.MM.YYYY", key=f"{k0}_v{i}_{f}"))
+                        else:
+                            vals[f] = st.text_area(nc.LABELS.get(f, f), v, key=f"{k0}_v{i}_{f}", height=68 if len(v) < 90 else 110)
+                    h_txt = st.text_input("Historique", nc.hist_line(news["date"], ev_name, p["historique"]), key=f"{k0}_h{i}_{nc.norm(ev_name)[:20]}")
+            fields, h_use, n_items = {}, False, 0
+            order = [f for f in NEWS_ORDER if f in vals] + [f for f in vals if f not in NEWS_ORDER]
+            with card:
+                for f in order + (["historique"] if h_txt.strip() else []):
+                    val = h_txt if f == "historique" else vals[f]
+                    if not (val or "").strip():
+                        continue
+                    use = st.checkbox(nc.LABELS.get(f, f), value=True, key=f"{k0}_u{i}_{f}")
+                    shown = nc.fr_date(val) if f == "echeance" else val
+                    note = ""
+                    cur = (cur_c.get(f) or "").strip() if target != NEW and f != "historique" else ""
+                    if cur:
+                        note = (f"<div class='nw-note'>s'ajoute à : {nc.e(cur[:110])}</div>" if f in nc.APPEND_FIELDS
+                                else f"<div class='nw-note'>remplace : {nc.e(cur[:110])}</div>")
+                    st.markdown(f"<div class='nw-val'><i class='ph {NEWS_ICON.get(f, 'ph-note-pencil')}'></i><span>{nc.e(shown)}</span></div>{note}",
+                                unsafe_allow_html=True)
+                    if use:
+                        n_items += 1
+                        if f == "historique":
+                            h_use = True
+                        else:
+                            fields[f] = val
+            h = h_txt if h_use else ""
+            who = {"prenom": pr, "nom": no} if target == NEW else cur_c
+            sub = " · ".join(x for x in (nc.study_line(cur_c), nc.job_line(cur_c)) if x) if target != NEW else ""
+            badge = ("<span class='chip chip--assoc'><i class='ph ph-user-plus'></i> Nouveau contact</span>" if target == NEW
+                     else "<span class='chip'><i class='ph ph-user-check'></i> Dans ton réseau</span>")
+            head.markdown(
+                "<div class='nc-head'><div class='nc-avatar'>" + nc.e(nc.initials(who)) + "</div><div class='nc-id'>"
+                f"<div class='nc-name'>{nc.e(who.get('prenom', ''))} <b>{nc.e((who.get('nom') or '').upper())}</b></div>"
+                + (f"<div class='nc-sub'>{nc.e(sub)}</div>" if sub else "") + "</div></div>"
+                f"<div class='nc-chips'>{badge}<span class='chip'><i class='ph ph-check-circle'></i> {n_items} info(s) à enregistrer</span></div>",
+                unsafe_allow_html=True)
             plan.append((target, pr, no, fields, h))
         c1, c2 = st.columns(2)
         if c1.button("Enregistrer", type="primary", key=f"{k0}_save", disabled=not plan):
