@@ -568,7 +568,7 @@ def news_prompt(text, contacts, today, event_date, selected=None):
            "Si la note parle clairement d'une autre personne absente de la liste, ajoute-la avec contact_id = null."
            if selected else
            "Repère chaque personne dont il parle et associe-la à un contact de la liste si c'est clairement elle.")
-    return f"""Tu aides Antoine (étudiant en finance à Genève) à tenir son carnet de réseau. Il a écrit une note courte
+    return f"""Tu aides Antoine (étudiant en finance à Genève) à tenir son carnet de réseau. Il a écrit ou dicté une note
 après une rencontre ou un événement de networking : ce que des personnes lui ont appris, dit ou proposé, et ce qu'il doit faire.
 {who}
 
@@ -597,6 +597,7 @@ Champs possibles par personne (ne mets QUE ceux que la note renseigne vraiment) 
 - echeance : date AAAA-MM-JJ de cette action ; « mi-novembre » = le 15, « fin novembre » = le 30, « dans 2 semaines » à partir de la date du jour
 
 Règles :
+- La note peut être le récit oral d'une soirée entière qui parle de plusieurs personnes : une entrée par personne, sans mélanger leurs informations, chacune avec sa propre tâche si Antoine en mentionne une.
 - Reformule proprement en français, phrases courtes, style notes. N'invente rien, ne déduis rien qui n'est pas écrit.
 - Si plusieurs contacts peuvent correspondre, contact_id = null, ids possibles dans candidats, une phrase dans doute.
 - historique : une phrase résumant l'échange avec cette personne (sans la date).

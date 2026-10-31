@@ -60,20 +60,20 @@ h1, h2, h3, h4 { color: #FFFFFF !important; font-weight: 700 !important; letter-
   background-color: rgba(15,23,42,0.6) !important; border: 1px solid rgba(59,130,246,0.2) !important; border-radius: var(--radius-sm) !important; }
 [data-testid="stTextInput"] input, [data-testid="stDateInput"] input, [data-testid="stTextArea"] textarea { color: #FFFFFF !important; font-size: 16px !important; }
 /* bloc « Raconte ta rencontre » */
-.st-key-dictee { background: linear-gradient(160deg, rgba(255,255,255,0.11) 0%, rgba(147,197,253,0.06) 55%, rgba(255,255,255,0.04) 100%);
+[class*="st-key-dictee"] { background: linear-gradient(160deg, rgba(255,255,255,0.11) 0%, rgba(147,197,253,0.06) 55%, rgba(255,255,255,0.04) 100%);
   border: 1px solid rgba(255,255,255,0.20); border-radius: 24px; padding: 20px 18px 16px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 12px 40px rgba(37,99,235,0.20), inset 0 1px 0 rgba(255,255,255,0.18); margin-bottom: 18px; }
-.st-key-dictee [data-testid="stTextArea"] [data-baseweb="textarea"] { background: rgba(255,255,255,0.07) !important; border: 1px solid rgba(255,255,255,0.22) !important; border-radius: 16px !important; }
-.st-key-dictee textarea::placeholder { color: rgba(226,232,240,0.55) !important; }
-.st-key-dictee [data-testid="stAudioInput"] > div, .st-key-dictee [data-testid="stAudioInput"] section { background: rgba(255,255,255,0.10) !important;
+[class*="st-key-dictee"] [data-testid="stTextArea"] [data-baseweb="textarea"] { background: rgba(255,255,255,0.07) !important; border: 1px solid rgba(255,255,255,0.22) !important; border-radius: 16px !important; }
+[class*="st-key-dictee"] textarea::placeholder { color: rgba(226,232,240,0.55) !important; }
+[class*="st-key-dictee"] [data-testid="stAudioInput"] > div, [class*="st-key-dictee"] [data-testid="stAudioInput"] section { background: rgba(255,255,255,0.10) !important;
   border: 1px solid rgba(255,255,255,0.28) !important; border-radius: 18px !important; }
 /* rond du micro = logo Nexus */
-.st-key-dictee [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]),
-.st-key-dictee [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) {
+[class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]),
+[class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) {
   background: url("__NEXUS__") center/cover no-repeat !important; border-radius: 50% !important; border: 1px solid rgba(255,255,255,0.35) !important;
   box-shadow: 0 4px 16px rgba(109,40,217,0.45) !important; width: 40px !important; height: 40px !important; min-width: 40px !important; }
-.st-key-dictee [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]) svg,
-.st-key-dictee [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) svg { opacity: 0 !important; }
+[class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]) svg,
+[class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) svg { opacity: 0 !important; }
 .dict-title { display: flex; align-items: center; gap: 10px; color: #FFFFFF; font-size: 20px; font-weight: 900; letter-spacing: 0.3px; }
 .dict-title i { font-size: 24px; color: var(--blue-300); }
 .dict-sub { color: #CBD5E1; font-size: 13.5px; line-height: 1.5; margin: 6px 0 12px; }
@@ -506,34 +506,81 @@ def contact_label(x):
 
 
 with tab_news:
-    st.markdown("<div class='hint' style='text-align:left'>Choisis la ou les personnes (tape quelques lettres), puis écris ou dicte "
-                "ce qu'elles t'ont appris et ce que tu dois faire. L'IA range chaque info dans la bonne case, reformule et devine "
-                "l'événement. Tu valides avant d'enregistrer : les textes s'ajoutent à la suite, rien n'est écrasé.</div>", unsafe_allow_html=True)
     if not GEMINI_KEY:
         st.warning("Ajoute GEMINI_API_KEY dans les Secrets de l'app (Streamlit Cloud → Settings → Secrets) pour activer l'analyse.")
     rnd = st.session_state.setdefault("news_round", 0)
-    with st.form(f"news_in_{rnd}", border=True):
-        people_ids = [c["id"] for c in sorted(contacts, key=lambda c: (nc.norm(c["prenom"]), nc.norm(c["nom"])))]
-        c1, c2 = st.columns([3, 2])
-        picked = c1.multiselect("Personnes", people_ids, format_func=contact_label, placeholder="Tape « dio », « pictet »…")
-        ev_date = c2.date_input("Date", value=today, format="DD.MM.YYYY")
-        txt = st.text_area("Ce qu'ils t'ont appris, ce que tu dois faire", height=180,
-                           placeholder="Kylian : passé chez Cabelo, conseille de postuler aux stages d'été dès janvier. Café mi-novembre.")
-        go = st.form_submit_button("Analyser", disabled=not GEMINI_KEY)
-    if go and txt.strip():
-        with st.spinner("Analyse en cours…"):
-            try:
-                sel = [by_id[x] for x in picked if x in by_id]
-                res, model = nc.gemini_json(nc.news_prompt(txt, contacts, today.isoformat(), ev_date.isoformat(), sel),
-                                            GEMINI_KEY, secret("gemini_model") or None)
-                props = nc.clean_proposal(res, contacts)
-                if len(sel) == 1 and len(props) == 1 and not props[0]["contact_id"]:
-                    props[0]["contact_id"] = sel[0]["id"]          # une seule personne choisie : c'est elle
-                st.session_state.news = dict(props=props, date=ev_date.isoformat(), name=str((res or {}).get("evenement") or ""),
-                                             model=model, n=st.session_state.get("news_n", 0) + 1)
-                st.session_state.news_n = st.session_state.news["n"]
-            except Exception as ex:
-                st.error(f"Analyse impossible : {ex}. Ton texte reste dans la zone ci-dessus.")
+    ver = st.session_state.setdefault("news_ver", 0)
+    people_ids = [c["id"] for c in sorted(contacts, key=lambda c: (nc.norm(c["prenom"]), nc.norm(c["nom"])))]
+    try:
+        hero_n = st.container(key="dictee_news")
+    except TypeError:
+        hero_n = st.container(border=True)
+    with hero_n:
+        st.markdown("<div class='dict-title'><i class='ph ph-microphone'></i>Raconte ta soirée ou ta rencontre</div>", unsafe_allow_html=True)
+        naudio = None
+        if GEMINI_KEY and hasattr(st, "audio_input"):
+            naudio = st.audio_input("Dicter", key=f"news_mic_{rnd}", label_visibility="collapsed")
+        txt = st.text_area("Récit", st.session_state.get("news_txt", ""), height=140, key=f"news_txt_{rnd}_{ver}", label_visibility="collapsed",
+                           placeholder="… ou écris ici. Ex. : Soirée alumni GUIC. Kylian : passé chez Cabelo, conseille de postuler aux stages dès janvier, "
+                                       "café mi-novembre. Sarah : en M1 à HEC, veut faire du private equity, je dois lui envoyer mon CV.")
+        with st.expander("Préciser les personnes ou la date (facultatif)"):
+            c1, c2 = st.columns([3, 2])
+            picked = c1.multiselect("Personnes", people_ids, format_func=contact_label, placeholder="Tape « dio », « pictet »…", key=f"news_pick_{rnd}")
+            ev_date = c2.date_input("Date", value=today, format="DD.MM.YYYY", key=f"news_date_{rnd}")
+        go = st.button("Analyser avec l'IA", key=f"news_go_{rnd}", disabled=not GEMINI_KEY, use_container_width=True)
+
+    if naudio is not None:
+        import hashlib
+        import time as _tn
+        nh = hashlib.md5(naudio.getvalue()).hexdigest()
+        if nh != st.session_state.get("nmic_done") and (nh != st.session_state.get("nmic_fail") or go):
+            heard, err = None, None
+            _t0 = _tn.time()
+            with st.spinner("Transcription de ta dictée…"):
+                try:
+                    heard = nc.transcribe(naudio.getvalue(), getattr(naudio, "type", None) or "audio/wav", GEMINI_KEY, secret("gemini_model_dictee") or None)
+                except Exception as ex:
+                    err = f"{type(ex).__name__} : {ex}"
+            st.session_state.t_dictee_n = _tn.time() - _t0
+            if heard:
+                st.session_state.nmic_done = nh
+                txt = (txt.strip() + " " + heard).strip()
+                go = True                                            # dictée -> analyse directement
+            else:
+                st.session_state.nmic_fail = nh
+                st.error("Dictée non transcrite : " + (err or "aucun texte entendu (parle plus longtemps ou plus près du micro)")
+                         + ". Appuie sur « Analyser avec l'IA » pour réessayer.")
+    analysed = False
+    if go:
+        if not txt.strip():
+            st.warning("Écris ou dicte d'abord ton récit.")
+        else:
+            import time as _tn2
+            _t1 = _tn2.time()
+            with st.spinner("Analyse en cours…"):
+                try:
+                    sel = [by_id[x] for x in picked if x in by_id]
+                    res, model = nc.gemini_json(nc.news_prompt(txt, contacts, today.isoformat(), ev_date.isoformat(), sel),
+                                                GEMINI_KEY, secret("gemini_model") or None)
+                    props = nc.clean_proposal(res, contacts)
+                    if len(sel) == 1 and len(props) == 1 and not props[0]["contact_id"]:
+                        props[0]["contact_id"] = sel[0]["id"]          # une seule personne choisie : c'est elle
+                    st.session_state.news = dict(props=props, date=ev_date.isoformat(), name=str((res or {}).get("evenement") or ""),
+                                                 model=model, n=st.session_state.get("news_n", 0) + 1)
+                    st.session_state.news_n = st.session_state.news["n"]
+                    st.session_state.news_txt = txt
+                    st.session_state.news_ver = ver + 1                # le récit (dicté) apparaît dans la zone de texte
+                    _td = st.session_state.pop("t_dictee_n", None)
+                    st.session_state.news_info = (f"{len(props)} personne(s) repérée(s) : vérifie ci-dessous. "
+                                                  f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_tn2.time() - _t1:.0f} s)")
+                    analysed = True
+                except Exception as ex:
+                    st.error(f"Analyse impossible : {ex}. Ton texte reste dans la zone ci-dessus.")
+    if analysed:
+        st.rerun()
+    info = st.session_state.pop("news_info", None)
+    if info:
+        st.info(info)
 
     news = st.session_state.get("news")
     if news:
@@ -599,6 +646,7 @@ with tab_news:
                     errs.append(f"{contact_label(target)} : {ex}")
             refresh()
             st.session_state.pop("news", None)
+            st.session_state.pop("news_txt", None)
             st.session_state.news_round = rnd + 1
             st.session_state.news_msg = (done, errs)
             st.rerun()
