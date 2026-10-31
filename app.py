@@ -101,7 +101,7 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
 
 /* carte contact */
 .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; margin-bottom: 12px; }
-.nc { padding: 16px 18px; }
+.nc { padding: 18px 20px; }
 .nc-head { display: flex; align-items: center; gap: 14px; }
 .nc-photo { padding: 0; overflow: hidden; }
 .nc-photo img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
@@ -117,14 +117,20 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
 .chip--hot { color: var(--red); background: rgba(225,29,72,0.12); border-color: rgba(225,29,72,0.3); }
 .chip--warm { color: var(--amber); background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
 .chip--cold { color: #7DD3FC; background: rgba(56,189,248,0.10); border-color: rgba(56,189,248,0.28); }
-.nc-met { color: var(--text-dim); font-size: 12px; font-weight: 700; margin-top: 10px; text-transform: uppercase; letter-spacing: 0.8px; }
-.nc-quote { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--blue-500); background: rgba(37,99,235,0.08); border-radius: 0 12px 12px 0; color: #E2E8F0; font-style: italic; font-size: 14px; }
-.nc-fact { display: flex; gap: 8px; margin-top: 8px; color: #CBD5E1; font-size: 14px; }
-.nc-fact i { color: var(--blue-400); font-size: 17px; margin-top: 1px; }
-.nc-hist-item { font-size: 13px; line-height: 1.45; margin-bottom: 3px; }
-.nc-task { margin-top: 10px; padding: 8px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; color: var(--amber); background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); }
+.nc-task { margin-top: 12px; padding: 9px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; color: var(--amber); background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); }
 .nc-task.late { color: var(--red); background: rgba(225,29,72,0.10); border-color: rgba(225,29,72,0.3); }
-.nc-foot { margin-top: 10px; color: var(--text-dim); font-size: 12px; }
+.nc-rows { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 14px 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.07); }
+.nc-k { display: flex; gap: 7px; align-items: flex-start; font-size: 11px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-dim); padding-top: 3px; }
+.nc-k i { color: var(--blue-400); font-size: 15px; margin-top: -1px; }
+.nc-v { color: #E2E8F0; font-size: 14px; line-height: 1.55; min-width: 0; overflow-wrap: anywhere; }
+.nc-v ul { margin: 0; padding-left: 18px; }
+.nc-v li { margin: 0 0 5px; }
+.nc-v li:last-child { margin-bottom: 0; }
+.nc-v.quote { font-style: italic; color: #CBD5E1; }
+.nc-v.small { font-size: 13px; color: #CBD5E1; }
+.nc-more { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.nc-empty { color: var(--text-dim); font-style: italic; font-size: 13px; }
+.nc-foot { margin-top: 16px; color: var(--text-dim); font-size: 12px; }
 
 @media (max-width: 768px) {
   .page-title { font-size: 32px; }
@@ -132,6 +138,10 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
   [role="tab"] { padding: 0 10px !important; }
   [role="tab"] p { font-size: 12px !important; }
   [data-testid="stForm"] { padding: 12px !important; }
+  .nc { padding: 16px 14px; }
+  .nc-rows { grid-template-columns: 1fr; gap: 3px; }
+  .nc-k { margin-top: 10px; }
+  .nc-k:first-child { margin-top: 0; }
 }
 """
 
@@ -264,13 +274,14 @@ with tab_add:
         c1, c2 = st.columns([3, 2])
         ou = c1.text_input("Rencontré où", placeholder="Wick, soirée GUIC, cours…")
         quand = c2.date_input("Quand", value=today, format="DD.MM.YYYY")
-        anecdote = st.text_area("Anecdote / phrase marquante", placeholder="La phrase drôle, le détail niche qu'il t'a raconté…", height=90)
-        conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", placeholder="Un conseil sur le métier, la carrière, la vie… ou une phrase à retenir", height=90)
-        raconte = st.text_area("Ce qu'il m'a raconté", placeholder="Son parcours, son équipe…", height=90)
+        raconte = st.text_area("Personnalité, relation", placeholder="Comment il fonctionne, son caractère, comment vous vous entendez, son parcours…", height=90)
+        projets = st.text_area("Projets d'avenir", placeholder="Master visé, poste rêvé, création de boîte, départ à l'étranger…", height=80)
         c1, c2 = st.columns(2)
-        hobbies = c1.text_input("Sport, hobbies", placeholder="Trail, ski, échecs…")
+        hobbies = c1.text_input("Hobbies, sport", placeholder="Trail, ski, échecs…")
         communs = c2.text_input("Points communs", placeholder="Même école, même club…")
-        utile = st.text_input("Utile pour…", placeholder="Conseils CV, intro à son équipe, stage…")
+        conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", placeholder="Un conseil sur le métier, la carrière, la vie… ou une phrase à retenir", height=80)
+        anecdote = st.text_area("Anecdote / phrase marquante", placeholder="La phrase drôle, le détail niche qu'il t'a raconté…", height=80)
+        utile = st.text_input("Valeur ajoutée dans mon réseau", placeholder="Regard d'expert sur le PE, porte d'entrée chez Pictet, bon conseil carrière…")
         relation = choice("Relation", nc.RELATIONS, key="add_rel", default="Network")
         with st.expander("Suivi et coordonnées"):
             tache = st.text_input("Tâche à faire", placeholder="Lui écrire sur LinkedIn, envoyer le CV…")
@@ -285,7 +296,7 @@ with tab_add:
         else:
             dup = nc.duplicates(contacts, prenom, nom)
             c = nc.new_contact(prenom=prenom, nom=nom, categorie=cat or "", institution=inst, poste=poste, rencontre_ou=ou,
-                               date_rencontre=quand, anecdote=anecdote, conseil=conseil, raconte=raconte, hobbies=hobbies, points_communs=communs,
+                               date_rencontre=quand, anecdote=anecdote, conseil=conseil, raconte=raconte, projets=projets, hobbies=hobbies, points_communs=communs,
                                utile_pour=utile, relation=relation or "", tache=tache, echeance=ech, dernier_contact=quand,
                                telephone=tel, linkedin=li)
             try:
@@ -436,13 +447,14 @@ def edit_form(c, key):
         c1, c2 = st.columns(2)
         inst = c1.text_input("Institution / école", c["institution"])
         poste = c2.text_input("Poste ou filière", c["poste"])
-        anecdote = st.text_area("Anecdote / phrase marquante", c["anecdote"], height=80)
-        conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", c.get("conseil", ""), height=80)
-        raconte = st.text_area("Ce qu'il m'a raconté", c["raconte"], height=80)
+        raconte = st.text_area("Personnalité, relation", c["raconte"], height=80)
+        projets = st.text_area("Projets d'avenir", c.get("projets", ""), height=70)
+        conseil = st.text_area("Conseil qu'il m'a donné (ou citation)", c.get("conseil", ""), height=70)
+        anecdote = st.text_area("Anecdote / phrase marquante", c["anecdote"], height=70)
         c1, c2 = st.columns(2)
-        hobbies = c1.text_input("Sport, hobbies", c["hobbies"])
+        hobbies = c1.text_input("Hobbies, sport", c["hobbies"])
         communs = c2.text_input("Points communs", c["points_communs"])
-        utile = st.text_input("Utile pour…", c["utile_pour"])
+        utile = st.text_input("Valeur ajoutée dans mon réseau", c["utile_pour"])
         relation = st.selectbox("Relation", ["—"] + nc.RELATIONS, index=(nc.RELATIONS.index(c["relation"]) + 1) if c.get("relation") in nc.RELATIONS else 0)
         tache = st.text_input("Tâche à faire", c["tache"])
         c1, c2 = st.columns(2)
@@ -453,7 +465,7 @@ def edit_form(c, key):
         li = c2.text_input("Lien LinkedIn", c["linkedin"])
         if st.form_submit_button("Enregistrer les modifications"):
             save_update(c["id"], dict(prenom=prenom.strip(), nom=nom.strip(), categorie="" if cat == "—" else cat, institution=inst, poste=poste,
-                                      anecdote=anecdote, conseil=conseil, raconte=raconte, hobbies=hobbies, points_communs=communs, utile_pour=utile,
+                                      anecdote=anecdote, conseil=conseil, raconte=raconte, projets=projets, hobbies=hobbies, points_communs=communs, utile_pour=utile,
                                       relation="" if relation == "—" else relation, tache=tache, echeance=nc.iso(ech),
                                       dernier_contact=nc.iso(dern), telephone=tel, linkedin=li))
             st.rerun()

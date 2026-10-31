@@ -18,16 +18,16 @@ from pathlib import Path
 COLUMNS = [
     "id", "cree_le", "prenom", "nom", "categorie", "institution", "poste", "rencontre_ou", "date_rencontre",
     "anecdote", "raconte", "hobbies", "points_communs", "utile_pour", "chaleur", "tache", "echeance",
-    "dernier_contact", "telephone", "linkedin", "importe", "relation", "conseil", "historique",
+    "dernier_contact", "telephone", "linkedin", "importe", "relation", "conseil", "historique", "projets",
 ]
 LABELS = {
     "prenom": "Prénom", "nom": "Nom", "categorie": "Catégorie", "institution": "Institution / école",
     "poste": "Poste ou filière", "rencontre_ou": "Rencontré où", "date_rencontre": "Date de la rencontre",
-    "anecdote": "Anecdote / phrase marquante", "raconte": "Ce qu'il m'a raconté", "hobbies": "Sport, hobbies",
-    "points_communs": "Points communs", "utile_pour": "Utile pour…", "chaleur": "Chaleur du contact",
+    "anecdote": "Anecdote / phrase marquante", "raconte": "Personnalité, relation", "hobbies": "Hobbies, sport",
+    "points_communs": "Points communs", "utile_pour": "Valeur ajoutée dans mon réseau", "chaleur": "Chaleur du contact",
     "tache": "Tâche à faire", "echeance": "Échéance", "dernier_contact": "Dernier contact",
     "telephone": "Numéro", "linkedin": "Lien LinkedIn", "relation": "Relation",
-    "conseil": "Conseil qu'il m'a donné", "historique": "Historique",
+    "conseil": "Conseil qu'il m'a donné", "historique": "Historique", "projets": "Projets d'avenir",
 }
 
 # Catégories : (nom, icône Phosphor). Le premier groupe = pro, le second = études et perso.
@@ -336,7 +336,7 @@ def norm(s: str) -> str:
     return "".join(ch for ch in s if not unicodedata.combining(ch))
 
 
-SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "historique", "raconte",
+SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "historique", "raconte", "projets",
                  "hobbies", "points_communs", "utile_pour", "tache"]
 
 
@@ -419,6 +419,27 @@ def initials(c) -> str:
     return ((c.get("prenom") or "?")[:1] + (c.get("nom") or "")[:1]).upper()
 
 
+def split_points(v: str) -> list:
+    """Découpe un texte en points : séparateurs « · », « ; », retours à la ligne, puis phrases si c'est long."""
+    parts = [p.strip(" .;·") for p in re.split(r"\s·\s|\s?;\s|\n", str(v or "")) if p.strip(" .;·")]
+    out = []
+    for p in parts:
+        if len(p) > 90:
+            out += [x.strip(" .") for x in re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])", p) if x.strip(" .")]
+        else:
+            out.append(p)
+    return out
+
+
+def _value_html(v, mode="points"):
+    pts = split_points(v)
+    if not pts:
+        return ""
+    if mode == "inline" or len(pts) == 1:
+        return e(" · ".join(pts) if mode == "inline" else pts[0])
+    return "<ul>" + "".join(f"<li>{e(p)}</li>" for p in pts) + "</ul>"
+
+
 def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -> str:
     today = today or date.today()
     icon = CAT_ICON.get(c.get("categorie"), "ph-user")
@@ -428,26 +449,33 @@ def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -
         chips.append(f"<span class='chip'><i class='ph {icon}'></i> {e(c['categorie'])}</span>")
     if c.get("relation"):
         chips.append(f"<span class='chip'><i class='ph ph-tag'></i> {e(c['relation'])}</span>")
-    met = " · ".join(x for x in (c.get("rencontre_ou"), fr_date(c.get("date_rencontre"))) if x)
-    lines = []
-    if c.get("anecdote"):
-        lines.append(f"<div class='nc-quote'><i class='ph ph-quotes'></i> {e(c['anecdote'])}</div>")
-    facts = [("ph-lightbulb", c.get("conseil")), ("ph-chat-circle-text", c.get("raconte")), ("ph-person-simple-run", c.get("hobbies")),
-             ("ph-link-simple", c.get("points_communs")), ("ph-target", c.get("utile_pour"))]
-    for ic, v in facts:
-        if v:
-            lines.append(f"<div class='nc-fact'><i class='ph {ic}'></i><span>{e(v)}</span></div>")
-    hist = [x.strip() for x in (c.get("historique") or "").split("\n") if x.strip()]
-    if hist:
-        items = "".join(f"<div class='nc-hist-item'>{e(x)}</div>" for x in hist[-4:][::-1])
-        more = f"<div class='nc-hist-item' style='opacity:.6'>… {len(hist) - 4} plus ancien(s)</div>" if len(hist) > 4 else ""
-        lines.append(f"<div class='nc-fact'><i class='ph ph-clock-counter-clockwise'></i><span>{items}{more}</span></div>")
     task = ""
     if c.get("tache") or c.get("echeance"):
         ech = parse_date(c.get("echeance"))
         cls = "late" if ech and ech < today else ""
         when = f" · {fr_date(ech)}" if ech else ""
         task = f"<div class='nc-task {cls}'><i class='ph ph-check-square'></i> {e(c.get('tache') or 'À faire')}{e(when)}</div>"
+    met = " · ".join(x for x in (c.get("rencontre_ou"), fr_date(c.get("date_rencontre"))) if x)
+    hist = [x.strip() for x in (c.get("historique") or "").split("\n") if x.strip()]
+    hist_html = ""
+    if hist:
+        recent = hist[-4:][::-1]
+        hist_html = "<ul>" + "".join(f"<li>{e(x)}</li>" for x in recent) + "</ul>"
+        if len(hist) > 4:
+            hist_html += f"<div class='nc-more'>+ {len(hist) - 4} plus ancien(s)</div>"
+    todo = "<span class='nc-empty'>à découvrir</span>"
+    rows = [
+        ("ph-map-pin", "Rencontré", e(met) if met else "", ""),
+        ("ph-user-focus", "Personnalité, relation", _value_html(c.get("raconte")), ""),
+        ("ph-rocket-launch", "Projets d'avenir", _value_html(c.get("projets")) or todo, ""),
+        ("ph-person-simple-run", "Hobbies", _value_html(c.get("hobbies"), "inline") or todo, ""),
+        ("ph-link-simple", "Points communs", _value_html(c.get("points_communs"), "inline"), ""),
+        ("ph-lightbulb", "Conseil", _value_html(c.get("conseil")), "quote"),
+        ("ph-sparkle", "Anecdote", _value_html(c.get("anecdote")), ""),
+        ("ph-clock-counter-clockwise", "Historique", hist_html, "small"),
+        ("ph-star", "Valeur ajoutée", _value_html(c.get("utile_pour")), ""),
+    ]
+    body = "".join(f"<div class='nc-k'><i class='ph {ic}'></i>{e(k)}</div><div class='nc-v {cls}'>{v}</div>" for ic, k, v, cls in rows if v)
     lt = last_touch(c)
     foot = f"Dernier contact : {fr_date(lt)}" if lt else ""
     li = ""
@@ -463,8 +491,8 @@ def contact_card_html(c, today: date | None = None, extra="", photo: str = "") -
         f"<div class='nc-sub'>{e(sub)}</div>" if sub else "",
         "</div>", li, "</div>",
         f"<div class='nc-chips'>{''.join(chips)}</div>" if chips else "",
-        f"<div class='nc-met'><i class='ph ph-map-pin'></i> {e(met)}</div>" if met else "",
-        "".join(lines), task,
+        task,
+        f"<div class='nc-rows'>{body}</div>" if body else "",
         f"<div class='nc-foot'>{e(foot)}</div>" if foot else "",
         extra,
         "</div>",
@@ -477,7 +505,7 @@ def kpi_html(items) -> str:
 
 
 # --------------------------------------------------------------------------- « Nouvelles » : texte libre rangé par l'IA (Gemini)
-APPEND_FIELDS = {"conseil": " · ", "anecdote": " · ", "raconte": " · ", "hobbies": ", ", "points_communs": ", ", "utile_pour": " · "}
+APPEND_FIELDS = {"conseil": " · ", "anecdote": " · ", "raconte": " · ", "projets": " · ", "hobbies": ", ", "points_communs": ", ", "utile_pour": " · "}
 REPLACE_FIELDS = ["institution", "poste", "categorie", "relation", "tache", "echeance"]
 NEWS_FIELDS = list(APPEND_FIELDS) + REPLACE_FIELDS
 GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"]
@@ -504,10 +532,11 @@ Contacts (id | prénom nom | institution | poste) :
 Champs possibles par personne (ne mets QUE ceux que la note renseigne vraiment) :
 - conseil : conseil ou citation qu'il lui a donné, ce qu'il lui a appris
 - anecdote : détail marquant, moment drôle, fait personnel
-- raconte : ce qu'il lui a raconté (parcours, équipe, projets, nouvelles)
+- raconte : sa personnalité, sa façon de fonctionner, comment Antoine s'entend avec lui, son parcours
+- projets : ses projets d'avenir (études visées, poste rêvé, création d'entreprise, départ à l'étranger…)
 - hobbies : sports et loisirs
 - points_communs : ce qu'ils ont en commun
-- utile_pour : en quoi ce contact peut aider Antoine
+- utile_pour : la valeur ajoutée de cette personne dans le réseau d'Antoine (son expertise, son milieu, les portes qu'elle connaît)
 - institution : nouvel employeur ou école (seulement si ça a changé)
 - poste : nouveau poste ou études (seulement si ça a changé)
 - categorie : une de : {cats} (seulement si évident et nouveau)
