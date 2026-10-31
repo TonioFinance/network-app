@@ -119,6 +119,7 @@ label, [data-testid="stWidgetLabel"] p { color: var(--text-muted) !important; fo
 .nc-quote { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--blue-500); background: rgba(37,99,235,0.08); border-radius: 0 12px 12px 0; color: #E2E8F0; font-style: italic; font-size: 14px; }
 .nc-fact { display: flex; gap: 8px; margin-top: 8px; color: #CBD5E1; font-size: 14px; }
 .nc-fact i { color: var(--blue-400); font-size: 17px; margin-top: 1px; }
+.nc-hist-item { font-size: 13px; line-height: 1.45; margin-bottom: 3px; }
 .nc-task { margin-top: 10px; padding: 8px 12px; border-radius: 12px; font-size: 13px; font-weight: 700; color: var(--amber); background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); }
 .nc-task.late { color: var(--red); background: rgba(225,29,72,0.10); border-color: rgba(225,29,72,0.3); }
 .nc-foot { margin-top: 10px; color: var(--text-dim); font-size: 12px; }
@@ -223,7 +224,7 @@ st.markdown("".join([
     nc.kpi_html([("En retard", len(late), "var(--red)"), ("Cette semaine", len(week), "var(--amber)")]),
 ]), unsafe_allow_html=True)
 
-tab_add, tab_net, tab_rel = st.tabs(["Ajouter", "Réseau", "À relancer"])
+tab_add, tab_news, tab_net, tab_rel = st.tabs(["Ajouter", "Nouvelles", "Réseau", "À relancer"])
 
 CAT_NAMES = [c for c, _ in nc.CATEGORIES]
 
@@ -284,6 +285,126 @@ with tab_add:
                     st.warning(f"Il y avait déjà un(e) {c['prenom']} {c['nom'].upper()} dans ton réseau : vérifie le doublon dans l'onglet Réseau.")
             except Exception as ex:
                 st.error(f"Échec de l'enregistrement : {ex}")
+
+
+# =============================================================================
+# 5 bis. NOUVELLES (texte libre rangé par Gemini, validé avant enregistrement)
+# =============================================================================
+GEMINI_KEY = secret("GEMINI_API_KEY") or secret("gemini_api_key")
+NEW, SKIP = "__new__", "__skip__"
+by_id = {c["id"]: c for c in contacts}
+
+
+def contact_label(x):
+    if x == NEW:
+        return "➕ Nouveau contact"
+    if x == SKIP:
+        return "Ignorer cette personne"
+    c = by_id.get(x, {})
+    return f"{c.get('prenom', '')} {c.get('nom', '').upper()}" + (f" · {c['institution']}" if c.get("institution") else "")
+
+
+with tab_news:
+    st.markdown("<div class='hint' style='text-align:left'>Écris ou dicte ce qui s'est passé (micro du clavier). "
+                "L'IA repère les personnes, range chaque info dans la bonne case et reformule. Tu valides avant d'enregistrer : "
+                "les textes s'ajoutent à la suite, rien n'est écrasé.</div>", unsafe_allow_html=True)
+    if not GEMINI_KEY:
+        st.warning("Ajoute GEMINI_API_KEY dans les Secrets de l'app (Streamlit Cloud → Settings → Secrets) pour activer l'analyse.")
+    rnd = st.session_state.setdefault("news_round", 0)
+    with st.form(f"news_in_{rnd}", border=True):
+        c1, c2 = st.columns([2, 3])
+        ev_date = c1.date_input("Date", value=today, format="DD.MM.YYYY")
+        ev_name = c2.text_input("Événement", placeholder="Soirée alumni GIC, coffee chat…")
+        txt = st.text_area("Ce qui s'est passé", height=200,
+                           placeholder="Revu Kylian à la soirée alumni : il est passé chez … , m'a conseillé de … On se fait un café mi-novembre.")
+        go = st.form_submit_button("Analyser", disabled=not GEMINI_KEY)
+    if go and txt.strip():
+        with st.spinner("Analyse en cours…"):
+            try:
+                res, model = nc.gemini_json(nc.news_prompt(txt, contacts, today.isoformat(), ev_date.isoformat(), ev_name),
+                                            GEMINI_KEY, secret("gemini_model") or None)
+                st.session_state.news = dict(props=nc.clean_proposal(res, contacts), date=ev_date.isoformat(), name=ev_name,
+                                             model=model, n=st.session_state.get("news_n", 0) + 1)
+                st.session_state.news_n = st.session_state.news["n"]
+            except Exception as ex:
+                st.error(f"Analyse impossible : {ex}. Ton texte reste dans la zone ci-dessus.")
+
+    news = st.session_state.get("news")
+    if news:
+        props, k0 = news["props"], f"nw{news['n']}"
+        if not props:
+            st.info("Aucune personne repérée dans le texte.")
+        others = [c["id"] for c in sorted(contacts, key=lambda c: (nc.norm(c["prenom"]), nc.norm(c["nom"])))]
+        plan = []
+        for i, p in enumerate(props):
+            name = f"{p['prenom']} {p['nom'].upper()}".strip() or "Personne"
+            st.markdown(f"<div class='section-title'>{nc.e(name)}</div>", unsafe_allow_html=True)
+            if p["doute"]:
+                st.warning(p["doute"])
+            first = ([p["contact_id"]] if p["contact_id"] else []) + [x for x in p["candidats"] if x != p["contact_id"]]
+            opts = first + [NEW, SKIP] + [x for x in others if x not in first]
+            default = first[0] if first else NEW
+            target = st.selectbox("Contact", opts, index=opts.index(default), key=f"{k0}_t{i}", format_func=contact_label)
+            if target == SKIP:
+                continue
+            pr, no = p["prenom"], p["nom"]
+            if target == NEW:
+                c1, c2 = st.columns(2)
+                pr = c1.text_input("Prénom", p["prenom"], key=f"{k0}_p{i}")
+                no = c2.text_input("Nom", p["nom"], key=f"{k0}_n{i}")
+            cur_c = by_id.get(target, {})
+            fields = {}
+            for f, v in p["champs"].items():
+                cur = (cur_c.get(f) or "").strip()
+                use = st.checkbox(nc.LABELS.get(f, f), value=True, key=f"{k0}_u{i}_{f}")
+                if f == "echeance":
+                    val = st.date_input("Échéance", value=nc.parse_date(v), format="DD.MM.YYYY", key=f"{k0}_v{i}_{f}",
+                                        label_visibility="collapsed")
+                    val = nc.iso(val)
+                else:
+                    val = st.text_area(nc.LABELS.get(f, f), v, key=f"{k0}_v{i}_{f}", label_visibility="collapsed",
+                                       height=68 if len(v) < 90 else 110)
+                if cur and target != NEW:
+                    st.caption(("Ajouté à la suite de : " if f in nc.APPEND_FIELDS else "Remplace : ") + cur[:140])
+                if use and (val or "").strip():
+                    fields[f] = val
+            h = st.text_input("Historique", nc.hist_line(news["date"], news["name"], p["historique"]), key=f"{k0}_h{i}")
+            plan.append((target, pr, no, fields, h))
+        c1, c2 = st.columns(2)
+        if c1.button("Enregistrer", type="primary", key=f"{k0}_save", disabled=not plan):
+            done, errs = [], []
+            for target, pr, no, fields, h in plan:
+                try:
+                    if target == NEW:
+                        if not (pr.strip() or no.strip()):
+                            errs.append("un nouveau contact sans prénom ni nom a été ignoré")
+                            continue
+                        c = nc.new_contact(prenom=pr, nom=no, rencontre_ou=news["name"], date_rencontre=news["date"],
+                                           dernier_contact=news["date"], historique=h, **fields)
+                        store.add(c)
+                        done.append(f"{c['prenom']} {c['nom'].upper()} (nouveau)")
+                    else:
+                        ch = nc.news_changes(by_id[target], fields, h, news["date"])
+                        if ch:
+                            store.update(target, ch)
+                            done.append(contact_label(target).split(" · ")[0])
+                except Exception as ex:
+                    errs.append(f"{contact_label(target)} : {ex}")
+            refresh()
+            st.session_state.pop("news", None)
+            st.session_state.news_round = rnd + 1
+            st.session_state.news_msg = (done, errs)
+            st.rerun()
+        if c2.button("Annuler", key=f"{k0}_cancel"):
+            st.session_state.pop("news", None)
+            st.rerun()
+    msg = st.session_state.pop("news_msg", None)
+    if msg:
+        done, errs = msg
+        if done:
+            st.success("Enregistré : " + ", ".join(done) + ". Reporté dans l'Excel à la prochaine synchro.")
+        for er in errs:
+            st.error(er)
 
 
 # =============================================================================

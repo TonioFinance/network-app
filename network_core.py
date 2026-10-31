@@ -18,7 +18,7 @@ from pathlib import Path
 COLUMNS = [
     "id", "cree_le", "prenom", "nom", "categorie", "institution", "poste", "rencontre_ou", "date_rencontre",
     "anecdote", "raconte", "hobbies", "points_communs", "utile_pour", "chaleur", "tache", "echeance",
-    "dernier_contact", "telephone", "linkedin", "importe", "relation", "conseil",
+    "dernier_contact", "telephone", "linkedin", "importe", "relation", "conseil", "historique",
 ]
 LABELS = {
     "prenom": "Prénom", "nom": "Nom", "categorie": "Catégorie", "institution": "Institution / école",
@@ -27,7 +27,7 @@ LABELS = {
     "points_communs": "Points communs", "utile_pour": "Utile pour…", "chaleur": "Chaleur du contact",
     "tache": "Tâche à faire", "echeance": "Échéance", "dernier_contact": "Dernier contact",
     "telephone": "Numéro", "linkedin": "Lien LinkedIn", "relation": "Relation",
-    "conseil": "Conseil qu'il m'a donné",
+    "conseil": "Conseil qu'il m'a donné", "historique": "Historique",
 }
 
 # Catégories : (nom, icône Phosphor). Le premier groupe = pro, le second = études et perso.
@@ -297,7 +297,7 @@ def norm(s: str) -> str:
     return "".join(ch for ch in s if not unicodedata.combining(ch))
 
 
-SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "raconte",
+SEARCH_FIELDS = ["prenom", "nom", "institution", "poste", "categorie", "rencontre_ou", "anecdote", "conseil", "historique", "raconte",
                  "hobbies", "points_communs", "utile_pour", "tache"]
 
 
@@ -398,6 +398,11 @@ def contact_card_html(c, today: date | None = None, extra="") -> str:
     for ic, v in facts:
         if v:
             lines.append(f"<div class='nc-fact'><i class='ph {ic}'></i><span>{e(v)}</span></div>")
+    hist = [x.strip() for x in (c.get("historique") or "").split("\n") if x.strip()]
+    if hist:
+        items = "".join(f"<div class='nc-hist-item'>{e(x)}</div>" for x in hist[-4:][::-1])
+        more = f"<div class='nc-hist-item' style='opacity:.6'>… {len(hist) - 4} plus ancien(s)</div>" if len(hist) > 4 else ""
+        lines.append(f"<div class='nc-fact'><i class='ph ph-clock-counter-clockwise'></i><span>{items}{more}</span></div>")
     task = ""
     if c.get("tache") or c.get("echeance"):
         ech = parse_date(c.get("echeance"))
@@ -429,3 +434,135 @@ def contact_card_html(c, today: date | None = None, extra="") -> str:
 def kpi_html(items) -> str:
     cells = "".join(f"<div class='nw-card'><div class='nw-title'>{e(t)}</div><div class='nw-value' style='color:{col};'>{e(v)}</div></div>" for t, v, col in items)
     return f"<div class='nw-grid'>{cells}</div>"
+
+
+# --------------------------------------------------------------------------- « Nouvelles » : texte libre rangé par l'IA (Gemini)
+APPEND_FIELDS = {"conseil": " · ", "anecdote": " · ", "raconte": " · ", "hobbies": ", ", "points_communs": ", ", "utile_pour": " · "}
+REPLACE_FIELDS = ["institution", "poste", "categorie", "relation", "tache", "echeance"]
+NEWS_FIELDS = list(APPEND_FIELDS) + REPLACE_FIELDS
+GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"]
+
+
+def news_prompt(text, contacts, today, event_date, event_name=""):
+    roster = "\n".join(f"{c['id']} | {c.get('prenom', '')} {c.get('nom', '')} | {c.get('institution', '')} | {c.get('poste', '')}" for c in contacts)
+    cats = ", ".join(n for n, _ in CATEGORIES)
+    return f"""Tu aides Antoine (étudiant en finance à Genève) à tenir son carnet de réseau. Il a écrit une note libre après un
+événement de networking. Repère chaque personne dont il parle et range les informations dans les bons champs.
+
+Date du jour : {today}. Date de l'événement : {event_date}. Événement : {event_name or "non précisé"}.
+
+Contacts existants (id | prénom nom | institution | poste) :
+{roster}
+
+Champs possibles (ne mets QUE ceux que la note renseigne vraiment) :
+- conseil : conseil ou citation qu'il lui a donné
+- anecdote : détail marquant, moment drôle, fait personnel
+- raconte : ce qu'il lui a raconté (parcours, équipe, projets, nouvelles)
+- hobbies : sports et loisirs
+- points_communs : ce qu'ils ont en commun
+- utile_pour : en quoi ce contact peut aider Antoine
+- institution : nouvel employeur ou école (seulement si ça a changé)
+- poste : nouveau poste ou études (seulement si ça a changé)
+- categorie : une de : {cats} (seulement si évident et nouveau)
+- relation : Network, Ami ou À contacter (seulement si Antoine le dit)
+- tache : prochaine action d'Antoine envers cette personne
+- echeance : date AAAA-MM-JJ de cette action ; convertis « mi-novembre » en le 15, « fin novembre » en le 30, « dans 2 semaines » à partir de la date du jour
+
+Règles :
+- Reformule proprement en français, phrases courtes, style notes. N'invente rien, ne déduis rien qui n'est pas écrit.
+- Associe chaque personne à un id de la liste si c'est clairement elle (prénom + contexte). Si plusieurs contacts peuvent
+  correspondre, mets contact_id à null et liste les ids possibles dans candidats, avec une phrase dans doute.
+- Si la personne n'est pas dans la liste, contact_id = null, candidats = [], et donne prénom, nom (si connu), institution.
+- historique : une phrase résumant l'échange avec cette personne lors de cet événement (sans la date).
+
+Réponds UNIQUEMENT en JSON, de la forme :
+{{"personnes": [{{"contact_id": "id ou null", "candidats": [], "doute": "", "prenom": "", "nom": "", "historique": "",
+  "champs": {{"conseil": "", "tache": "", "echeance": ""}}}}]}}
+
+Note d'Antoine :
+\"\"\"{text}\"\"\""""
+
+
+def gemini_json(prompt, api_key, model=None, timeout=60):
+    """Appelle Gemini et renvoie (objet JSON, modèle utilisé). Essaie plusieurs modèles si l'un n'existe plus."""
+    import requests
+    models = [model] if model else GEMINI_MODELS
+    last = ""
+    for m in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+        body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}}
+        r = requests.post(url, params={"key": api_key}, json=body, timeout=timeout)
+        if r.status_code in (404, 400) and "not found" in r.text.lower():
+            last = f"{m} : modèle introuvable"
+            continue
+        if r.status_code != 200:
+            raise RuntimeError(f"Gemini {m} : erreur {r.status_code} {r.text[:200]}")
+        data = r.json()
+        try:
+            txt = data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            raise RuntimeError(f"Gemini {m} : réponse vide ({str(data)[:200]})")
+        txt = txt.strip()
+        if txt.startswith("```"):
+            txt = re.sub(r"^```(json)?|```$", "", txt).strip()
+        return json.loads(txt), m
+    raise RuntimeError("Aucun modèle Gemini disponible (" + last + "). Ajoute gemini_model dans les secrets.")
+
+
+def clean_proposal(res, contacts):
+    """Normalise la réponse de l'IA : ids valides, champs connus, dates ISO."""
+    ids = {c["id"] for c in contacts}
+    out = []
+    for p in (res or {}).get("personnes", []) or []:
+        cid = p.get("contact_id") or None
+        if cid not in ids:
+            cid = None
+        cands = [x for x in (p.get("candidats") or []) if x in ids]
+        champs = {}
+        for k, v in (p.get("champs") or {}).items():
+            if k in NEWS_FIELDS and v not in (None, ""):
+                v = str(v).strip()
+                if k == "echeance":
+                    d = parse_date(v)
+                    if not d:
+                        continue
+                    v = d.isoformat()
+                if k == "relation" and v not in RELATIONS:
+                    continue
+                if k == "categorie" and v not in CAT_ICON:
+                    continue
+                champs[k] = v
+        out.append(dict(contact_id=cid, candidats=cands, doute=str(p.get("doute") or ""), prenom=str(p.get("prenom") or ""),
+                        nom=str(p.get("nom") or ""), historique=str(p.get("historique") or ""), champs=champs))
+    return out
+
+
+def news_changes(c, champs, hist_line, event_date):
+    """Changements à enregistrer sur un contact existant : ajout à la suite pour les textes, remplacement pour le reste."""
+    ch = {}
+    for k, v in champs.items():
+        v = (v or "").strip()
+        if not v:
+            continue
+        if k in APPEND_FIELDS:
+            cur = (c.get(k) or "").strip()
+            if v in cur:
+                continue
+            ch[k] = (cur + APPEND_FIELDS[k] + v) if cur else v
+        else:
+            ch[k] = v
+    if hist_line.strip():
+        cur = (c.get("historique") or "").strip()
+        ch["historique"] = (cur + "\n" if cur else "") + hist_line.strip()
+    d = parse_date(event_date)
+    last = parse_date(c.get("dernier_contact"))
+    if d and (not last or d > last):
+        ch["dernier_contact"] = d.isoformat()
+    return ch
+
+
+def hist_line(event_date, event_name, text):
+    d = parse_date(event_date).strftime("%d.%m.%Y") if parse_date(event_date) else ""
+    head = " · ".join(x for x in (d, (event_name or "").strip()) if x)
+    return f"{head} : {text.strip()}" if head and text.strip() else (text.strip() or "")
