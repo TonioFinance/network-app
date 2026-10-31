@@ -443,19 +443,26 @@ NEWS_FIELDS = list(APPEND_FIELDS) + REPLACE_FIELDS
 GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"]
 
 
-def news_prompt(text, contacts, today, event_date, event_name=""):
-    roster = "\n".join(f"{c['id']} | {c.get('prenom', '')} {c.get('nom', '')} | {c.get('institution', '')} | {c.get('poste', '')}" for c in contacts)
+def news_prompt(text, contacts, today, event_date, selected=None):
+    """selected : contacts choisis par Antoine dans l'app (la note parle d'eux). Sinon, l'IA cherche dans tout le réseau."""
+    pool = selected or contacts
+    roster = "\n".join(f"{c['id']} | {c.get('prenom', '')} {c.get('nom', '')} | {c.get('institution', '')} | {c.get('poste', '')}" for c in pool)
     cats = ", ".join(n for n, _ in CATEGORIES)
-    return f"""Tu aides Antoine (étudiant en finance à Genève) à tenir son carnet de réseau. Il a écrit une note libre après un
-événement de networking. Repère chaque personne dont il parle et range les informations dans les bons champs.
+    who = ("Antoine a déjà choisi les personnes concernées (liste ci-dessous) : range les informations sur elles. "
+           "Si la note parle clairement d'une autre personne absente de la liste, ajoute-la avec contact_id = null."
+           if selected else
+           "Repère chaque personne dont il parle et associe-la à un contact de la liste si c'est clairement elle.")
+    return f"""Tu aides Antoine (étudiant en finance à Genève) à tenir son carnet de réseau. Il a écrit une note courte
+après une rencontre ou un événement de networking : ce que des personnes lui ont appris, dit ou proposé, et ce qu'il doit faire.
+{who}
 
-Date du jour : {today}. Date de l'événement : {event_date}. Événement : {event_name or "non précisé"}.
+Date du jour : {today}. Date de la rencontre : {event_date}.
 
-Contacts existants (id | prénom nom | institution | poste) :
+Contacts (id | prénom nom | institution | poste) :
 {roster}
 
-Champs possibles (ne mets QUE ceux que la note renseigne vraiment) :
-- conseil : conseil ou citation qu'il lui a donné
+Champs possibles par personne (ne mets QUE ceux que la note renseigne vraiment) :
+- conseil : conseil ou citation qu'il lui a donné, ce qu'il lui a appris
 - anecdote : détail marquant, moment drôle, fait personnel
 - raconte : ce qu'il lui a raconté (parcours, équipe, projets, nouvelles)
 - hobbies : sports et loisirs
@@ -466,18 +473,18 @@ Champs possibles (ne mets QUE ceux que la note renseigne vraiment) :
 - categorie : une de : {cats} (seulement si évident et nouveau)
 - relation : Network, Ami ou À contacter (seulement si Antoine le dit)
 - tache : prochaine action d'Antoine envers cette personne
-- echeance : date AAAA-MM-JJ de cette action ; convertis « mi-novembre » en le 15, « fin novembre » en le 30, « dans 2 semaines » à partir de la date du jour
+- echeance : date AAAA-MM-JJ de cette action ; « mi-novembre » = le 15, « fin novembre » = le 30, « dans 2 semaines » à partir de la date du jour
 
 Règles :
 - Reformule proprement en français, phrases courtes, style notes. N'invente rien, ne déduis rien qui n'est pas écrit.
-- Associe chaque personne à un id de la liste si c'est clairement elle (prénom + contexte). Si plusieurs contacts peuvent
-  correspondre, mets contact_id à null et liste les ids possibles dans candidats, avec une phrase dans doute.
-- Si la personne n'est pas dans la liste, contact_id = null, candidats = [], et donne prénom, nom (si connu), institution.
-- historique : une phrase résumant l'échange avec cette personne lors de cet événement (sans la date).
+- Si plusieurs contacts peuvent correspondre, contact_id = null, ids possibles dans candidats, une phrase dans doute.
+- historique : une phrase résumant l'échange avec cette personne (sans la date).
+- evenement : devine le cadre de la rencontre en 2 à 6 mots si la note le laisse comprendre (ex. « Soirée alumni GIC »,
+  « Coffee chat », « Session du GIC ») ; sinon chaîne vide.
 
 Réponds UNIQUEMENT en JSON, de la forme :
-{{"personnes": [{{"contact_id": "id ou null", "candidats": [], "doute": "", "prenom": "", "nom": "", "historique": "",
-  "champs": {{"conseil": "", "tache": "", "echeance": ""}}}}]}}
+{{"evenement": "", "personnes": [{{"contact_id": "id ou null", "candidats": [], "doute": "", "prenom": "", "nom": "",
+  "historique": "", "champs": {{"conseil": "", "tache": "", "echeance": ""}}}}]}}
 
 Note d'Antoine :
 \"\"\"{text}\"\"\""""

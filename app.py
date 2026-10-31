@@ -305,25 +305,30 @@ def contact_label(x):
 
 
 with tab_news:
-    st.markdown("<div class='hint' style='text-align:left'>Écris ou dicte ce qui s'est passé (micro du clavier). "
-                "L'IA repère les personnes, range chaque info dans la bonne case et reformule. Tu valides avant d'enregistrer : "
-                "les textes s'ajoutent à la suite, rien n'est écrasé.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='hint' style='text-align:left'>Choisis la ou les personnes (tape quelques lettres), puis écris ou dicte "
+                "ce qu'elles t'ont appris et ce que tu dois faire. L'IA range chaque info dans la bonne case, reformule et devine "
+                "l'événement. Tu valides avant d'enregistrer : les textes s'ajoutent à la suite, rien n'est écrasé.</div>", unsafe_allow_html=True)
     if not GEMINI_KEY:
         st.warning("Ajoute GEMINI_API_KEY dans les Secrets de l'app (Streamlit Cloud → Settings → Secrets) pour activer l'analyse.")
     rnd = st.session_state.setdefault("news_round", 0)
     with st.form(f"news_in_{rnd}", border=True):
-        c1, c2 = st.columns([2, 3])
-        ev_date = c1.date_input("Date", value=today, format="DD.MM.YYYY")
-        ev_name = c2.text_input("Événement", placeholder="Soirée alumni GIC, coffee chat…")
-        txt = st.text_area("Ce qui s'est passé", height=200,
-                           placeholder="Revu Kylian à la soirée alumni : il est passé chez … , m'a conseillé de … On se fait un café mi-novembre.")
+        people_ids = [c["id"] for c in sorted(contacts, key=lambda c: (nc.norm(c["prenom"]), nc.norm(c["nom"])))]
+        c1, c2 = st.columns([3, 2])
+        picked = c1.multiselect("Personnes", people_ids, format_func=contact_label, placeholder="Tape « dio », « pictet »…")
+        ev_date = c2.date_input("Date", value=today, format="DD.MM.YYYY")
+        txt = st.text_area("Ce qu'ils t'ont appris, ce que tu dois faire", height=180,
+                           placeholder="Kylian : passé chez Cabelo, conseille de postuler aux stages d'été dès janvier. Café mi-novembre.")
         go = st.form_submit_button("Analyser", disabled=not GEMINI_KEY)
     if go and txt.strip():
         with st.spinner("Analyse en cours…"):
             try:
-                res, model = nc.gemini_json(nc.news_prompt(txt, contacts, today.isoformat(), ev_date.isoformat(), ev_name),
+                sel = [by_id[x] for x in picked if x in by_id]
+                res, model = nc.gemini_json(nc.news_prompt(txt, contacts, today.isoformat(), ev_date.isoformat(), sel),
                                             GEMINI_KEY, secret("gemini_model") or None)
-                st.session_state.news = dict(props=nc.clean_proposal(res, contacts), date=ev_date.isoformat(), name=ev_name,
+                props = nc.clean_proposal(res, contacts)
+                if len(sel) == 1 and len(props) == 1 and not props[0]["contact_id"]:
+                    props[0]["contact_id"] = sel[0]["id"]          # une seule personne choisie : c'est elle
+                st.session_state.news = dict(props=props, date=ev_date.isoformat(), name=str((res or {}).get("evenement") or ""),
                                              model=model, n=st.session_state.get("news_n", 0) + 1)
                 st.session_state.news_n = st.session_state.news["n"]
             except Exception as ex:
@@ -332,6 +337,7 @@ with tab_news:
     news = st.session_state.get("news")
     if news:
         props, k0 = news["props"], f"nw{news['n']}"
+        ev_name = st.text_input("Événement (deviné, modifiable)", news["name"], key=f"{k0}_ev", placeholder="Soirée alumni, coffee chat…")
         if not props:
             st.info("Aucune personne repérée dans le texte.")
         others = [c["id"] for c in sorted(contacts, key=lambda c: (nc.norm(c["prenom"]), nc.norm(c["nom"])))]
@@ -368,7 +374,7 @@ with tab_news:
                     st.caption(("Ajouté à la suite de : " if f in nc.APPEND_FIELDS else "Remplace : ") + cur[:140])
                 if use and (val or "").strip():
                     fields[f] = val
-            h = st.text_input("Historique", nc.hist_line(news["date"], news["name"], p["historique"]), key=f"{k0}_h{i}")
+            h = st.text_input("Historique", nc.hist_line(news["date"], ev_name, p["historique"]), key=f"{k0}_h{i}_{nc.norm(ev_name)[:20]}")
             plan.append((target, pr, no, fields, h))
         c1, c2 = st.columns(2)
         if c1.button("Enregistrer", type="primary", key=f"{k0}_save", disabled=not plan):
@@ -379,7 +385,7 @@ with tab_news:
                         if not (pr.strip() or no.strip()):
                             errs.append("un nouveau contact sans prénom ni nom a été ignoré")
                             continue
-                        c = nc.new_contact(prenom=pr, nom=no, rencontre_ou=news["name"], date_rencontre=news["date"],
+                        c = nc.new_contact(prenom=pr, nom=no, rencontre_ou=ev_name, date_rencontre=news["date"],
                                            dernier_contact=news["date"], historique=h, **fields)
                         store.add(c)
                         done.append(f"{c['prenom']} {c['nom'].upper()} (nouveau)")
