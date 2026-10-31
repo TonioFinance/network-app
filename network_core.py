@@ -621,11 +621,15 @@ def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=45, mode
     cfg = {"temperature": 0.2}
     if json_mode:
         cfg["responseMimeType"] = "application/json"
-    body = {"contents": [{"role": "user", "parts": parts}], "generationConfig": cfg}
     errors = []
     for m in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
-        for attempt in range(1 + retries):
+        use_think = True                                   # « réflexion » minimale = bien plus rapide ; retirée si le modèle la refuse
+        for attempt in range(2 + retries):
+            c = dict(cfg)
+            if use_think:
+                c["thinkingConfig"] = {"thinkingBudget": 0} if "2.5" in m else {"thinkingLevel": "minimal"}
+            body = {"contents": [{"role": "user", "parts": parts}], "generationConfig": c}
             try:
                 r = requests.post(url, params={"key": api_key}, json=body, timeout=timeout)
             except requests.RequestException as ex:
@@ -637,6 +641,9 @@ def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=45, mode
                 except (KeyError, IndexError, ValueError):
                     errors.append(f"{m} : réponse vide")
                     break
+            if r.status_code == 400 and use_think and "think" in r.text.lower():
+                use_think = False                          # ce modèle n'accepte pas ce réglage : on refait sans
+                continue
             if r.status_code in (429, 500, 502, 503, 504) and attempt < retries:
                 time.sleep(1)
                 continue
