@@ -851,7 +851,7 @@ def event_view(contacts, assocs, today: date | None = None):
 
 # --------------------------------------------------------------------------- « Ajouter » : description libre -> champs pré-remplis
 CONTACT_AI_FIELDS = ["prenom", "nom", "rencontre_ou", "raconte", "projets", "hobbies", "points_communs", "conseil", "anecdote", "utile_pour",
-                     "relation", "categorie", "ecole", "niveau", "etudes", "employeur", "fonction", "associations", "tache", "echeance"]
+                     "relation", "categorie", "ecole", "niveau", "etudes", "employeur", "fonction", "associations", "tache", "echeance", "linkedin"]
 
 
 def contact_prompt(text, today, known: dict):
@@ -896,8 +896,67 @@ def clean_contact_fields(res) -> dict:
             if not d:
                 continue
             v = d.isoformat()
+        if k == "linkedin":
+            if "linkedin.com/in/" not in v.lower():
+                continue
+            v = v if v.lower().startswith("http") else "https://" + v.lstrip("/")
         if (k == "relation" and v not in RELATIONS) or (k == "categorie" and v not in CAT_ICON) \
                 or (k == "niveau" and v not in NIVEAUX) or (k == "etudes" and v not in ETUDES):
             continue
         out[k] = v
     return out
+
+
+# --------------------------------------------------------------------------- import d'un profil LinkedIn (PDF « Enregistrer au format PDF » ou texte)
+def profile_text(data: bytes, name: str) -> str:
+    """Texte d'un profil : PDF lu localement (pypdf), sinon .md / .txt. '' si illisible."""
+    if name.lower().endswith(".pdf"):
+        try:
+            import io
+            from pypdf import PdfReader
+            return "\n".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(data)).pages[:6]).strip()
+        except Exception:
+            return ""
+    for enc in ("utf-8", "latin-1"):
+        try:
+            return data.decode(enc).strip()
+        except UnicodeDecodeError:
+            pass
+    return ""
+
+
+def linkedin_prompt(text, today):
+    cats = ", ".join(n for n, _ in CATEGORIES)
+    return f"""Voici le texte d'un profil LinkedIn (export PDF ou copie). Antoine (étudiant en finance à Genève) veut l'ajouter à son carnet de réseau.
+Date du jour : {today}. Extrais l'essentiel, en français, style notes, sans rien inventer.
+
+Champs :
+- prenom, nom
+- employeur : l'entreprise du poste ACTUEL (celui sans date de fin, « aujourd'hui », « Present »)
+- fonction : intitulé du poste actuel, suivi de « · depuis MM.AAAA » si la date de début est donnée (ex. « Analyst · depuis 03.2024 »)
+- raconte : 2 à 4 points courts séparés par « · » : ce qu'il fait dans son poste actuel (tâches, équipe), où il est basé (ville),
+  puis son parcours précédent en bref (postes et entreprises, du plus récent au plus ancien)
+- ecole : école ou faculté la plus récente ; etudes : « En cours » ou « Terminées » ;
+  niveau : une de B1, B2, B3, Bachelor obtenu, M1, M2, Doctorat, seulement si c'est clair
+- utile_pour : son expertise ou son milieu, utile pour le réseau d'Antoine (une phrase)
+- categorie : une de : {cats}
+- associations : associations ou organisations étudiantes citées (GUIC, IFSA…), sinon rien
+- linkedin : l'adresse du profil si elle apparaît (linkedin.com/in/…)
+
+Réponds UNIQUEMENT en JSON : {{"champs": {{"prenom": "", "nom": "", "employeur": "", "fonction": "", "raconte": "", "...": ""}}}}
+
+Profil :
+\"\"\"{text[:12000]}\"\"\""""
+
+
+def gemini_pdf_json(prompt, data: bytes, api_key, model=None):
+    """PDF illisible localement (scan) : on l'envoie tel quel à Gemini."""
+    import base64
+    parts = [{"text": prompt}, {"inline_data": {"mime_type": "application/pdf", "data": base64.b64encode(data).decode()}}]
+    txt, m = gemini_generate(parts, api_key, model, json_mode=True, timeout=30, deadline=40.0)
+    if txt.startswith("```"):
+        txt = re.sub(r"^```(json)?|```$", "", txt).strip()
+    try:
+        return json.loads(txt), m
+    except ValueError:
+        raise RuntimeError(f"Réponse de Gemini illisible ({m}).")

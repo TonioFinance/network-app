@@ -386,6 +386,10 @@ with tab_add:
                             placeholder="… ou écris ici. Ex. : Philippe Bulgaris, rencontré à la soirée GUIC, en master à HEC Lausanne, "
                                         "très calme, fait du trail, veut bosser en private markets. M'a conseillé de… On se revoit mi-novembre.")
         prefill = st.button("Pré-remplir avec l'IA", key=f"{k}_aibtn", disabled=not GEMINI_KEY, use_container_width=True)
+        li_file = None
+        if GEMINI_KEY:
+            li_file = st.file_uploader("Ou importe son profil LinkedIn (PDF « Enregistrer au format PDF », ou .md / .txt)",
+                                       type=["pdf", "md", "txt"], key=f"{k}_liup")
         if not GEMINI_KEY:
             st.caption("Ajoute GEMINI_API_KEY dans les Secrets pour activer la dictée et le pré-remplissage.")
     filled = pf.get("_ai")
@@ -459,6 +463,33 @@ with tab_add:
                 st.session_state.mic_fail = h
                 st.error("Dictée non transcrite : " + (err or "aucun texte entendu (parle plus longtemps ou plus près du micro)")
                          + ". Appuie sur « Pré-remplir avec l'IA » pour réessayer.")
+    if li_file is not None:
+        import hashlib
+        import time as _tl
+        lh = hashlib.md5(li_file.getvalue()).hexdigest()
+        if lh != st.session_state.get("li_done") and (lh != st.session_state.get("li_fail") or prefill):
+            _t0 = _tl.time()
+            with st.spinner("Lecture du profil LinkedIn…"):
+                try:
+                    raw = li_file.getvalue()
+                    txt_li = nc.profile_text(raw, li_file.name)
+                    if len(txt_li) >= 80:
+                        res_li, m_li = nc.gemini_json(nc.linkedin_prompt(txt_li, today.isoformat()), GEMINI_KEY, secret("gemini_model") or None)
+                    elif li_file.name.lower().endswith(".pdf"):
+                        res_li, m_li = nc.gemini_pdf_json(nc.linkedin_prompt("(voir le PDF joint)", today.isoformat()), raw, GEMINI_KEY,
+                                                         secret("gemini_model") or None)
+                    else:
+                        raise RuntimeError("fichier vide ou illisible")
+                    ch = dict((res_li or {}).get("champs") or {})
+                    ch.setdefault("rencontre_ou", "LinkedIn")
+                    ch.setdefault("relation", "À contacter")
+                    direct_a, prefill = {"champs": ch}, True
+                    st.session_state.li_done = lh
+                    st.session_state.t_dictee, st.session_state.t_direct = None, None
+                    st.session_state.from_li = f"profil LinkedIn lu en {_tl.time() - _t0:.0f} s · {m_li}"
+                except Exception as ex:
+                    st.session_state.li_fail = lh
+                    st.error(f"Profil non lu : {ex}. Appuie sur « Pré-remplir avec l'IA » pour réessayer.")
     if prefill:
         done_ai = False
         if not desc.strip() and not direct_a:
@@ -488,8 +519,9 @@ with tab_add:
                     st.session_state.add_round = rnd_a + 1
                     _td = st.session_state.pop("t_dictee", None)
                     _tdir = st.session_state.pop("t_direct", None)
+                    _fli = st.session_state.pop("from_li", None)
                     st.session_state.add_msg = (f"{len(ai)} champ(s) pré-rempli(s) : vérifie, corrige, puis Enregistrer. "
-                                                + (f"(écoute + analyse en un appel : {_tdir:.0f} s)" if _tdir else
+                                                + (f"({_fli})" if _fli else f"(écoute + analyse en un appel : {_tdir:.0f} s)" if _tdir else
                                                    f"({'dictée ' + format(_td, '.0f') + ' s, ' if _td else ''}analyse {_t2.time() - _t1:.0f} s · {_m})"))
                     done_ai = True
                 except Exception as ex:
