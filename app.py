@@ -891,7 +891,9 @@ def relance_block(title, items, kind, open_rows=False):
         late_days = (today - ech).days if ech and ech < today else 0
         when = ech.strftime("%d.%m") + (f" · {late_days} j de retard" if late_days else "")
         task = " ".join(str(c.get("tache") or "").split())
-        label = f"**{when}** — {c['prenom']} {c['nom'].upper()} · {task[:70] + ('…' if len(task) > 70 else '')}"
+        color = "red" if late_days else "green"                    # en retard : rouge ; dans les temps : vert
+        name = f"{c['prenom']} {c['nom'].upper()}".replace("[", "(").replace("]", ")")
+        label = f"**{when}** — :{color}[**{name}**] · {task[:70] + ('…' if len(task) > 70 else '')}"
         with st.expander(label, expanded=open_rows):
             st.markdown(f"<div class='nc-task {'late' if late_days else ''}'><i class='ph ph-check-square'></i> {nc.e(task)} · {nc.fr_date(ech)}</div>",
                         unsafe_allow_html=True)
