@@ -283,7 +283,7 @@ def save_update(cid, changes, msg="Enregistré"):
 contacts = load(st.session_state.ver)
 photos = load_photos(st.session_state.ver) if hasattr(store, "photos") else {}
 today = date.today()
-late, week, silent = nc.relances(contacts, today)
+late, week, later = nc.relances(contacts, today)
 
 # =============================================================================
 # 4. EN-TÊTE
@@ -474,7 +474,7 @@ with tab_add:
                     raw = li_file.getvalue()
                     txt_li = nc.profile_text(raw, li_file.name)
                     if len(txt_li) >= 80:
-                        res_li, m_li = nc.gemini_json(nc.linkedin_prompt(txt_li, today.isoformat()), GEMINI_KEY, secret("gemini_model") or None)
+                        res_li, m_li = nc.gemini_json(nc.linkedin_prompt(txt_li, today.isoformat()), GEMINI_KEY, secret("gemini_model") or None, think="low")
                     elif li_file.name.lower().endswith(".pdf"):
                         res_li, m_li = nc.gemini_pdf_json(nc.linkedin_prompt("(voir le PDF joint)", today.isoformat()), raw, GEMINI_KEY,
                                                          secret("gemini_model") or None)
@@ -881,21 +881,29 @@ with tab_net:
 # =============================================================================
 # 7. À RELANCER
 # =============================================================================
-def relance_block(title, items, kind):
+def relance_block(title, items, kind, open_rows=False):
     st.markdown(f"<div class='section-title'>{title} <span class='count'>{len(items)}</span></div>", unsafe_allow_html=True)
     if not items:
         st.markdown("<div class='hint'>Rien ici.</div>", unsafe_allow_html=True)
         return
     for c in items:
-        st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], ""), collapsible=True), unsafe_allow_html=True)
-        b1, b2 = st.columns(2)
-        if b1.button("✓ Fait aujourd'hui", key=f"act_done_{kind}_{c['id']}"):
-            save_update(c["id"], dict(tache="", echeance="", dernier_contact=today.isoformat()), "Relance notée")
-            st.rerun()
-        base = max(nc.parse_date(c["echeance"]) or today, today)
-        if b2.button("Reporter de 7 jours", key=f"act_snooze_{kind}_{c['id']}"):
-            save_update(c["id"], dict(echeance=(base + timedelta(days=7)).isoformat(), tache=c["tache"] or "Prendre des nouvelles"), "Reporté de 7 jours")
-            st.rerun()
+        ech = nc.parse_date(c["echeance"])
+        late_days = (today - ech).days if ech and ech < today else 0
+        when = ech.strftime("%d.%m") + (f" · {late_days} j de retard" if late_days else "")
+        task = " ".join(str(c.get("tache") or "").split())
+        label = f"**{when}** — {c['prenom']} {c['nom'].upper()} · {task[:70] + ('…' if len(task) > 70 else '')}"
+        with st.expander(label, expanded=open_rows):
+            st.markdown(f"<div class='nc-task {'late' if late_days else ''}'><i class='ph ph-check-square'></i> {nc.e(task)} · {nc.fr_date(ech)}</div>",
+                        unsafe_allow_html=True)
+            b1, b2 = st.columns(2)
+            if b1.button("✓ Fait aujourd'hui", key=f"act_done_{kind}_{c['id']}", use_container_width=True):
+                save_update(c["id"], dict(tache="", echeance="", dernier_contact=today.isoformat()), "Relance notée")
+                st.rerun()
+            base = max(ech or today, today)
+            if b2.button("Reporter de 7 jours", key=f"act_snooze_{kind}_{c['id']}", use_container_width=True):
+                save_update(c["id"], dict(echeance=(base + timedelta(days=7)).isoformat()), "Reporté de 7 jours")
+                st.rerun()
+            st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], ""), collapsible=True), unsafe_allow_html=True)
 
 
 # =============================================================================
@@ -927,5 +935,8 @@ with tab_ev:
             ev_row(c, False)
 
 with tab_rel:
+    st.markdown("<div class='hint' style='text-align:left'>Seulement les tâches avec une échéance. Clique sur une ligne pour la déplier.</div>",
+                unsafe_allow_html=True)
     relance_block("En retard", late, "late")
     relance_block("Cette semaine", week, "week")
+    relance_block("Plus tard", later, "later")

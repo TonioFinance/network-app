@@ -419,26 +419,17 @@ def last_touch(c) -> date | None:
 
 
 def relances(contacts, today: date | None = None):
-    """Trois listes : en retard (échéance passée), cette semaine (échéance dans les 7 jours), sans nouvelles."""
+    """Seulement les tâches avec une échéance : en retard, dans les 7 jours, plus tard. Une tâche sans date n'apparaît pas ici."""
     today = today or date.today()
-    late, week, silent = [], [], []
+    late, week, later = [], [], []
     for c in contacts:
         ech = parse_date(c.get("echeance"))
-        if c.get("tache") or ech:
-            if ech and ech < today:
-                late.append(c)
-            elif ech and ech <= today + timedelta(days=7):
-                week.append(c)
-            elif not ech and c.get("tache"):
-                week.append(c)
+        if not ech or not str(c.get("tache") or "").strip():
             continue
-        lt = last_touch(c)
-        if c.get("chaleur") in ("Chaud", "Tiède") and lt and (today - lt).days >= SANS_NOUVELLES_JOURS:
-            silent.append(c)
-    late.sort(key=lambda c: c["echeance"])
-    week.sort(key=lambda c: c["echeance"] or "9999")
-    silent.sort(key=lambda c: last_touch(c) or date.min)
-    return late, week, silent
+        (late if ech < today else week if ech <= today + timedelta(days=7) else later).append(c)
+    for lst in (late, week, later):
+        lst.sort(key=lambda c: c["echeance"])
+    return late, week, later
 
 
 def duplicates(contacts, prenom, nom):
