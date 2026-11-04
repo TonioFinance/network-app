@@ -80,6 +80,8 @@ h1, h2, h3, h4 { color: #FFFFFF !important; font-weight: 700 !important; letter-
 .nw-val { display: flex; gap: 10px; margin: -2px 0 10px 32px; color: #E2E8F0; font-size: 14.5px; line-height: 1.55; overflow-wrap: anywhere; }
 .nw-val i { color: var(--blue-400); font-size: 16px; margin-top: 3px; flex-shrink: 0; }
 .nw-note { margin: -8px 0 12px 4px; color: var(--text-dim); font-size: 12px; font-weight: 600; }
+/* Réseau : « Modifier » caché tant que la fiche est repliée (sauf si l'édition est déjà ouverte) */
+[class*="st-key-netc_"]:has(details.nc-fold:not([open])):not(:has([data-testid="stCheckbox"] input:checked)) [data-testid="stCheckbox"] { display: none; }
 /* rond du micro = logo Nexus */
 [class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="ecord" i]:not([aria-label*="top" i]),
 [class*="st-key-dictee"] [data-testid="stAudioInput"] button[aria-label*="nregistr" i]:not([aria-label*="top" i]):not([aria-label*="rr" i]) {
@@ -868,10 +870,15 @@ with tab_net:
         st.markdown("<div class='hint'>Aucun contact ne correspond.</div>", unsafe_allow_html=True)
     lim = st.session_state.get("lim", 30)
     for c in found[:lim]:
-        st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], ""), collapsible=True), unsafe_allow_html=True)
-        if st.toggle("Modifier", key=f"tg_{c['id']}"):
-            edit_form(c, c["id"])
-            photo_box(c)
+        try:
+            box = st.container(key=f"netc_{c['id']}")
+        except TypeError:
+            box = st.container()
+        with box:                                   # « Modifier » n'apparaît que si la fiche est dépliée (règle CSS netc_)
+            st.markdown(nc.contact_card_html(c, today, photo=photos.get(c["id"], ""), collapsible=True), unsafe_allow_html=True)
+            if st.toggle("Modifier", key=f"tg_{c['id']}"):
+                edit_form(c, c["id"])
+                photo_box(c)
     if len(found) > lim:
         if st.button(f"Afficher plus ({len(found) - lim} restants)"):
             st.session_state.lim = lim + 30
