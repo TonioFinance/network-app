@@ -593,8 +593,8 @@ Champs possibles par personne (ne mets QUE ceux que la note renseigne vraiment) 
 - fonction : son poste chez cet employeur (Analyst, stage, temps partiel…), seulement si nouveau ou changé
 - categorie : une de : {cats} (seulement si évident et nouveau)
 - relation : Network, Ami ou À contacter (seulement si Antoine le dit)
-- tache : prochaine action d'Antoine envers cette personne
-- echeance : date AAAA-MM-JJ de cette action ; « mi-novembre » = le 15, « fin novembre » = le 30, « dans 2 semaines » à partir de la date du jour
+- tache : seulement une action CONCRÈTE d'Antoine avec un délai PRÉCIS (date, « mi-novembre », « avant vendredi », « dans 2 semaines », « après ses examens en janvier »). Une simple intention ou attitude sans délai (« faudrait lui parler à l'occasion », « garder le contact », « le recroiser », « rester en lien ») n'est PAS une tâche : mets-la dans raconte sous la forme « À garder en tête : … »
+- echeance : date AAAA-MM-JJ de cette action (obligatoire si tache) ; « mi-novembre » = le 15, « fin novembre » = le 30, « dans 2 semaines » à partir de la date du jour
 
 Règles :
 - La note peut être le récit oral d'une soirée entière qui parle de plusieurs personnes : une entrée par personne, sans mélanger leurs informations, chacune avec sa propre tâche si Antoine en mentionne une.
@@ -606,7 +606,8 @@ Règles :
 1. Ajouter la nouveauté au BON endroit du profil : ce qu'il a dit ou conseillé -> conseil ; ses projets -> projets ; son caractère ou parcours -> raconte ;
    un détail marquant -> anecdote ; son milieu ou ses contacts -> utile_pour.
 2. Noter un point commun ou un centre d'intérêt partagé -> points_communs (et hobbies pour ses loisirs).
-3. Créer la TÂCHE à faire plus tard : tout ce qu'Antoine doit ou veut faire (« je dois », « il faut que », envoyer mon CV, relancer, café, appeler…) -> tache, avec echeance si une date est dite.
+3. Créer la TÂCHE : une action concrète d'Antoine (envoyer mon CV, relancer, café, appeler…) AVEC un délai précis -> tache + echeance.
+   Sans délai précis, ce n'est pas une tâche : « À garder en tête : … » dans raconte.
 Ne remplis école, niveau, employeur, fonction, associations, categorie, relation QUE si la note dit clairement que c'est nouveau ou changé.
 Plusieurs phrases sur une personne = plusieurs champs remplis (tâche et nouveauté), pas seulement l'historique.
 Noms : à l'oral, un nom est souvent mal entendu. S'il ressemble (même phonétiquement) à un contact de la liste, choisis ce contact au lieu d'en créer un nouveau.
@@ -708,9 +709,9 @@ def gemini_generate(parts, api_key, model=None, json_mode=True, timeout=20, mode
     raise RuntimeError("Gemini indisponible pour le moment (" + " ; ".join(errors) + "). Réessaie dans une minute.")
 
 
-def gemini_json(prompt, api_key, model=None, timeout=20, deadline=28.0):
+def gemini_json(prompt, api_key, model=None, timeout=20, deadline=28.0, think="minimal"):
     """Texte -> objet JSON (course entre deux modèles, limite de temps stricte)."""
-    txt, m = gemini_generate([{"text": prompt}], api_key, model, json_mode=True, timeout=timeout, deadline=deadline)
+    txt, m = gemini_generate([{"text": prompt}], api_key, model, json_mode=True, timeout=timeout, deadline=deadline, think=think)
     if txt.startswith("```"):
         txt = re.sub(r"^```(json)?|```$", "", txt).strip()
     try:
@@ -783,8 +784,20 @@ def clean_proposal(res, contacts):
                     continue
                 champs[k] = v
         out.append(dict(contact_id=cid, candidats=cands, doute=str(p.get("doute") or ""), prenom=str(p.get("prenom") or ""),
-                        nom=str(p.get("nom") or ""), historique=str(p.get("historique") or ""), champs=champs))
+                        nom=str(p.get("nom") or ""), historique=str(p.get("historique") or ""), champs=task_guard(champs)))
     return out
+
+
+def task_guard(champs: dict) -> dict:
+    """Une tâche n'est gardée que si elle a une échéance précise. Sinon c'est une intention : elle va dans « raconte »."""
+    t = str(champs.get("tache") or "").strip()
+    if t and not champs.get("echeance"):
+        champs.pop("tache", None)
+        note = "À garder en tête : " + t[0].lower() + t[1:] if not t.lower().startswith("à garder") else t
+        champs["raconte"] = (champs["raconte"] + " · " + note) if champs.get("raconte") else note
+    elif champs.get("echeance") and not t:
+        champs.pop("echeance", None)
+    return champs
 
 
 def news_changes(c, champs, hist_line, event_date):
@@ -876,7 +889,7 @@ Champs (ne mets QUE ce que la description dit vraiment, chaîne vide sinon) :
 - ecole : école ou faculté ; niveau : B1, B2, B3, Bachelor obtenu, M1, M2 ou Doctorat ; etudes : En cours ou Terminées
 - employeur : entreprise où il travaille (y compris stage) ; fonction : son poste
 - associations : GUIC, Alumni GUIC, Comité GSEM, IFSA ou autre association citée (séparées par des virgules)
-- tache : prochaine action d'Antoine envers lui ; echeance : date AAAA-MM-JJ (« mi-novembre » = le 15, « fin novembre » = le 30)
+- tache : seulement une action CONCRÈTE d'Antoine avec un délai PRÉCIS (date, « mi-novembre », « avant vendredi », « dans 2 semaines », « après ses examens en janvier »). Une simple intention ou attitude sans délai (« faudrait lui parler à l'occasion », « garder le contact », « le recroiser », « rester en lien ») n'est PAS une tâche : mets-la dans raconte sous la forme « À garder en tête : … » ; echeance : date AAAA-MM-JJ, obligatoire si tache (« mi-novembre » = le 15, « fin novembre » = le 30)
 
 Règles : français, phrases courtes style notes, reformule proprement, n'invente rien.
 Réponds UNIQUEMENT en JSON : {{"champs": {{"rencontre_ou": "", "raconte": "", "...": ""}}}}
@@ -904,7 +917,7 @@ def clean_contact_fields(res) -> dict:
                 or (k == "niveau" and v not in NIVEAUX) or (k == "etudes" and v not in ETUDES):
             continue
         out[k] = v
-    return out
+    return task_guard(out)
 
 
 # --------------------------------------------------------------------------- import d'un profil LinkedIn (PDF « Enregistrer au format PDF » ou texte)
@@ -925,28 +938,59 @@ def profile_text(data: bytes, name: str) -> str:
     return ""
 
 
+EDU_HEAD = re.compile(r"^\s*(Formation|Education|Études|Etudes|Ausbildung)\s*$", re.I | re.M)
+EDU_END = re.compile(r"^\s*(Licences et certifications|Licenses? (&|and) certifications?|Certifications?|Bénévolat|Volunteer.*|Compétences|Skills|"
+                     r"Langues|Languages|Distinctions.*|Honors.*|Publications|Projets|Projects|Recommandations|Recommendations|Centres d'intérêt|Interests|Page \d+.*)\s*$", re.I | re.M)
+
+
+def education_block(text: str) -> str:
+    """Section « Formation » du profil, recopiée telle quelle (pour que l'IA s'y concentre)."""
+    m = EDU_HEAD.search(text or "")
+    if not m:
+        return ""
+    rest = text[m.end():]
+    e = EDU_END.search(rest)
+    return rest[: e.start() if e else 2500].strip()[:2500]
+
+
 def linkedin_prompt(text, today):
     cats = ", ".join(n for n, _ in CATEGORIES)
+    edu = education_block(text)
+    edu_txt = f"\nSection « Formation » repérée dans le profil (à analyser en priorité pour les études) :\n\"\"\"{edu}\"\"\"\n" if edu else ""
     return f"""Voici le texte d'un profil LinkedIn (export PDF ou copie). Antoine (étudiant en finance à Genève) veut l'ajouter à son carnet de réseau.
 Date du jour : {today}. Extrais l'essentiel, en français, style notes, sans rien inventer.
 
 Champs :
 - prenom, nom
-- employeur : l'entreprise du poste ACTUEL (celui sans date de fin, « aujourd'hui », « Present »)
+- employeur : l'entreprise du poste ACTUEL (celui sans date de fin, « aujourd'hui », « Present »). Un stage en cours compte.
 - fonction : intitulé du poste actuel, suivi de « · depuis MM.AAAA » si la date de début est donnée (ex. « Analyst · depuis 03.2024 »)
 - raconte : 2 à 4 points courts séparés par « · » : ce qu'il fait dans son poste actuel (tâches, équipe), où il est basé (ville),
   puis son parcours précédent en bref (postes et entreprises, du plus récent au plus ancien)
-- ecole : école ou faculté la plus récente ; etudes : « En cours » ou « Terminées » ;
-  niveau : une de B1, B2, B3, Bachelor obtenu, M1, M2, Doctorat, seulement si c'est clair
-- utile_pour : son expertise ou son milieu, utile pour le réseau d'Antoine (une phrase)
+- ecole, niveau, etudes : voir « Études » ci-dessous
+- utile_pour : son expertise ou son milieu, utile pour le réseau d'Antoine (une phrase) ; ajoute à la fin « Certifications : … » s'il en a
+  (CFA, CAIA, FRM, CAS, DAS, cours en ligne…)
 - categorie : une de : {cats}
 - associations : associations ou organisations étudiantes citées (GUIC, IFSA…), sinon rien
 - linkedin : l'adresse du profil si elle apparaît (linkedin.com/in/…)
 
-Réponds UNIQUEMENT en JSON : {{"champs": {{"prenom": "", "nom": "", "employeur": "", "fonction": "", "raconte": "", "...": ""}}}}
+Études (important, lis toute la section Formation, ligne par ligne) :
+1. Ne garde QUE les cursus universitaires diplômants : Bachelor (BSc, BA, Licence), Master (MSc, MA, MBA à plein temps), Doctorat (PhD),
+   dans une université ou une haute école (UNIGE, HEC Lausanne, EPFL, HSG, HEG, LSE, ESSEC…).
+2. IGNORE pour ces champs la formation continue et les certificats : CAS, DAS, MAS, Executive / Exec Ed, certificat, diplôme de langue,
+   CFA / CAIA / FRM, cours en ligne (Coursera, edX, Udemy, LinkedIn Learning), bootcamps, séjours d'échange, maturité / bac / lycée.
+3. ecole = l'établissement du cursus universitaire le plus élevé, ou de celui en cours s'il y en a un (avec la faculté si elle est écrite, ex. « UNIGE – GSEM »).
+4. etudes = « En cours » si la date de fin de ce cursus est après {today} ou absente avec « aujourd'hui » ; sinon « Terminées ».
+5. niveau :
+   - Master en cours : M1 si commencé il y a moins d'un an, sinon M2 ; Master terminé : M2.
+   - Bachelor en cours (sans master) : B1, B2 ou B3 selon l'année depuis le début ; Bachelor terminé sans master : « Bachelor obtenu ».
+   - Doctorat (en cours ou terminé) : Doctorat.
+   - Si les dates manquent et que ce n'est pas clair : laisse vide.
+{edu_txt}
+Réponds UNIQUEMENT en JSON : {{"champs": {{"prenom": "", "nom": "", "employeur": "", "fonction": "", "raconte": "", "ecole": "", "niveau": "", "etudes": "", "...": ""}}}}
 
-Profil :
-\"\"\"{text[:12000]}\"\"\""""
+Profil complet :
+\"\"\"{text[:12000]}\"\"\"
+"""
 
 
 def gemini_pdf_json(prompt, data: bytes, api_key, model=None):
